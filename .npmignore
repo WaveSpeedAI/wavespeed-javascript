@@ -1,0 +1,33 @@
+# Source code
+src/
+examples/
+tests/
+coverage/
+
+# Development files
+.github/
+.husky/
+jest.config.js
+tsconfig.json
+.eslintrc.js
+.commitlintrc.js
+.releaserc.js
+
+# Build artifacts not needed in package
+*.tsbuildinfo
+*.log
+npm-debug.log*
+
+# Dependencies
+node_modules/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# CI
+.github/
