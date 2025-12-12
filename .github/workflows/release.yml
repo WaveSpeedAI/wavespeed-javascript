@@ -6,9 +6,32 @@ on:
       - 'v*.*.*'
 
 jobs:
-  release:
+  test:
+    name: Test
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build project
+        run: npm run build
+
+  publish-npm:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,9 +46,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
-
       - name: Build project
         run: npm run build
 
@@ -34,16 +54,31 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          body: |
-            Version ${{ github.ref }} has been released.
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            To install: `npm install wavespeed@${{ github.ref }}`
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            Version ${{ github.ref_name }} has been released to npm.
+
+            ## Installation
+
+            ```bash
+            npm install wavespeed@${{ github.ref_name }}
+            ```
+
+            ## Changes
+
+            See commit history for changes in this release.
           draft: false
           prerelease: false

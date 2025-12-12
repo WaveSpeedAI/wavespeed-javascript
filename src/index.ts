@@ -31,6 +31,8 @@ export interface UploadFileResp {
 export interface RunOptions {
   timeout?: number; // overall wait timeout in seconds
   pollInterval?: number; // per-call poll interval override
+  enableSyncMode?: boolean; // if true, use synchronous mode (single request)
+  maxRetries?: number; // maximum retries for this request (overrides client default)
 }
 
 // Internal options used inside the SDK
@@ -138,10 +140,13 @@ export class WaveSpeed {
   readonly pollInterval: number;
   readonly timeout?: number; // overall wait timeout (seconds)
   private readonly requestTimeout: number; // per-request timeout (seconds), internal
+  readonly maxRetries: number; // task-level retries
+  readonly maxConnectionRetries: number; // HTTP connection retries
+  readonly retryInterval: number; // base delay between retries in seconds
 
   /**
    * Create a new WaveSpeed client
-   * 
+   *
    * @param apiKey Your WaveSpeed API key (or set WAVESPEED_API_KEY environment variable)
    * @param options Additional client options
    */
@@ -151,6 +156,9 @@ export class WaveSpeed {
       baseUrl?: string;
       pollInterval?: number;
       timeout?: number; // overall wait timeout
+      maxRetries?: number; // task-level retries
+      maxConnectionRetries?: number; // HTTP connection retries
+      retryInterval?: number; // base delay between retries in seconds
     } = {},
   ) {
     const getEnvVar = (name: string): string | undefined => {
@@ -175,6 +183,9 @@ export class WaveSpeed {
     this.pollInterval = options.pollInterval ?? (Number.isFinite(envPoll) ? envPoll : 1);
     this.timeout = options.timeout ?? (Number.isFinite(envTimeout) ? envTimeout : 36000); // align with Python default wait
     this.requestTimeout = Number.isFinite(envRequestTimeout) ? envRequestTimeout : 120;
+    this.maxRetries = options.maxRetries ?? 0; // task-level retries
+    this.maxConnectionRetries = options.maxConnectionRetries ?? 3; // HTTP connection retries
+    this.retryInterval = options.retryInterval ?? 1; // base delay between retries in seconds
   }
 
   private buildUrl(path: string): string {
@@ -219,8 +230,8 @@ export class WaveSpeed {
 
     fetchOptions.headers = this.getHeaders(isUpload, fetchOptions.headers);
 
-    const maxRetriesVal = maxRetries ?? 3;
-    const initialBackoff = 1000;
+    const maxRetriesVal = maxRetries ?? this.maxConnectionRetries;
+    const initialBackoff = this.retryInterval * 1000;
     let retryCount = 0;
 
     const shouldRetry = (response: Response): boolean => {
@@ -285,21 +296,70 @@ export class WaveSpeed {
 
   /**
    * Generate an image and wait for the result
-   * 
+   *
    * @param modelId Model ID to use for prediction
    * @param input Input parameters for the prediction
    * @param options Additional fetch options
    */
   async run(modelId: string, input: Record<string, any>, options?: RunOptions): Promise<Prediction> {
-    const prediction = await this.create(modelId, input, options);
-    const pollInterval = options?.pollInterval ?? this.pollInterval;
-    const waitTimeout = options?.timeout ?? this.timeout;
-    return prediction.wait(pollInterval, waitTimeout);
+    const taskRetries = options?.maxRetries ?? this.maxRetries;
+    const enableSync = options?.enableSyncMode ?? false;
+
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt <= taskRetries; attempt++) {
+      try {
+        const prediction = await this.create(modelId, input, { ...options, enableSyncMode: enableSync });
+
+        // In sync mode, the prediction is already complete
+        if (enableSync) {
+          return prediction;
+        }
+
+        // Async mode: wait for completion
+        const pollInterval = options?.pollInterval ?? this.pollInterval;
+        const waitTimeout = options?.timeout ?? this.timeout;
+        return await prediction.wait(pollInterval, waitTimeout);
+      } catch (error) {
+        lastError = error as Error;
+        const isRetryable = this._isRetryableError(error);
+
+        if (!isRetryable || attempt >= taskRetries) {
+          throw error;
+        }
+
+        const delay = this.retryInterval * (attempt + 1) * 1000;
+        if (typeof console !== 'undefined') {
+          console.log(`Task attempt ${attempt + 1}/${taskRetries + 1} failed: ${error}`);
+          console.log(`Retrying in ${delay}ms...`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError || new Error(`All ${taskRetries + 1} attempts failed`);
+  }
+
+  /**
+   * Check if an error is retryable at the task level
+   * @param error The error to check
+   * @returns True if the error is retryable
+   * @private
+   */
+  _isRetryableError(error: any): boolean {
+    if (!error) return false;
+    const errorStr = error.toString().toLowerCase();
+    // Retry on timeout, connection errors, and 5xx/429 errors
+    return (
+      errorStr.includes('timeout') ||
+      errorStr.includes('connection') ||
+      errorStr.includes('http 5') ||
+      errorStr.includes('429')
+    );
   }
 
   /**
    * Create a prediction without waiting for it to complete
-   * 
+   *
    * @param modelId Model ID to use for prediction
    * @param input Input parameters for the prediction
    * @param options Additional fetch options
@@ -310,9 +370,15 @@ export class WaveSpeed {
       path += `?webhook=${options.webhook}`;
     }
 
+    // Add enable_sync_mode to input if requested
+    const bodyData = { ...input };
+    if (options?.enableSyncMode) {
+      bodyData.enable_sync_mode = true;
+    }
+
     const response = await this.fetchWithTimeout(path, {
       method: 'POST',
-      body: JSON.stringify(input),
+      body: JSON.stringify(bodyData),
       ...options,
     });
 

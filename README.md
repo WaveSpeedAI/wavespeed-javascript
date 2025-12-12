@@ -12,7 +12,7 @@
   <p>
     <a href="https://wavespeed.ai" target="_blank" rel="noopener noreferrer">🌐 Visit wavespeed.ai</a> •
     <a href="https://wavespeed.ai/docs">📖 Documentation</a> •
-    <a href="https://github.com/WaveSpeedAI/client-javascript/issues">💬 Issues</a>
+    <a href="https://github.com/WaveSpeedAI/wavespeed-javascript/issues">💬 Issues</a>
   </p>
 </div>
 
@@ -74,6 +74,40 @@ const client = new WaveSpeed('your-api-key');
 const client = new WaveSpeed('your-api-key', {
   timeout: 36000,      // Max wait time in seconds (default: 36000)
   pollInterval: 1,     // Status check interval (default: 1)
+});
+
+const prediction = await client.run('wavespeed-ai/z-image/turbo', {
+  prompt: 'Cat'
+}, {
+  timeout: 300,        // Override timeout for this request
+  pollInterval: 2,     // Override poll interval for this request
+  enableSyncMode: false, // Single request mode, no polling (default: false)
+});
+```
+
+### Sync Mode
+
+Use `enableSyncMode: true` for a single request that waits for the result (no polling).
+
+> **Note:** Not all models support sync mode. Check the model documentation for availability.
+
+```javascript
+const prediction = await client.run('wavespeed-ai/z-image/turbo', {
+  prompt: 'Cat'
+}, {
+  enableSyncMode: true
+});
+```
+
+### Retry Configuration
+
+Configure retries at the client level:
+
+```javascript
+const client = new WaveSpeed('your-api-key', {
+  maxRetries: 0,            // Task-level retries (default: 0)
+  maxConnectionRetries: 3,  // HTTP connection retries (default: 3)
+  retryInterval: 1,         // Base delay between retries in seconds (default: 1)
 });
 ```
 
