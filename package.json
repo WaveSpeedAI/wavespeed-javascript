@@ -1,6 +1,6 @@
 {
   "name": "wavespeed",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WaveSpeed Client SDK for Wavespeed API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
