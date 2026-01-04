@@ -4,13 +4,20 @@
     "module": "CommonJS",
     "declaration": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["ES2018", "DOM"],
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "wavespeed": ["./src/index"],
+      "wavespeed/*": ["./src/*"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.test.ts", "dist", "examples"]
+  "exclude": ["node_modules", "**/*.test.ts", "dist", "examples", "src/**/*.backup"]
 }

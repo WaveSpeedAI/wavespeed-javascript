@@ -43,23 +43,40 @@ npm run format
 
 ## Architecture
 
+### SDK Structure (Aligned with Python SDK)
+
+```
+src/
+├── index.ts              # Main entry point
+├── version.ts            # Version info
+├── config.ts             # Configuration (api class)
+└── api/
+    ├── index.ts         # Convenience functions (run, upload)
+    └── client.ts        # Client class implementation
+```
+
 ### Client Structure
 
-Entry point: `new WaveSpeed(apiKey?: string, options?: {...})`
-
-The SDK provides a simple client for running models:
-
+**Primary way (recommended)**:
 ```typescript
-const client = new WaveSpeed('your-api-key');
-const prediction = await client.run('model-id', input);
+import Client from 'wavespeed';
+const client = new Client('your-api-key');
+const result = await client.run('model-id', input);
+```
+
+**Convenience functions (Python-style)**:
+```typescript
+import { run, upload } from 'wavespeed';
+const result = await run('model-id', input);
+const url = await upload('/path/to/file');
 ```
 
 ### Key Classes and Interfaces
 
-- `WaveSpeed` - Main client class
-- `Prediction` - Prediction object with status and outputs
+- `Client` - Main client class (formerly WaveSpeed)
 - `RunOptions` - Options for run calls
-- `UploadFileResp` - Upload response interface
+- `api` - Configuration class (from config.ts)
+- Convenience functions: `run()`, `upload()` use default client singleton
 
 ### Features
 
@@ -98,12 +115,27 @@ Per-request configuration via `RunOptions`:
 
 ```
 src/
-├── index.ts          # Main SDK implementation
+├── index.ts              # Main entry, exports everything
+├── version.ts            # Version from package.json
+├── config.ts             # Configuration (api class)
+└── api/
+    ├── index.ts         # Convenience functions + default client
+    └── client.ts        # Client class implementation
 tests/
-├── index.test.ts     # Test suite
+├── client.test.ts        # Core client tests
+├── wavespeed.test.ts     # Full test suite
 dist/
-├── index.js          # Compiled JavaScript
-├── index.d.ts        # TypeScript definitions
+├── index.js             # Compiled JavaScript
+├── index.d.ts           # TypeScript definitions
+├── api/
+│   ├── index.js
+│   ├── index.d.ts
+│   ├── client.js
+│   └── client.d.ts
+├── config.js
+├── config.d.ts
+├── version.js
+└── version.d.ts
 ```
 
 ## Testing

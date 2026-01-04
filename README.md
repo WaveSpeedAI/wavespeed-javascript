@@ -29,29 +29,14 @@ npm install wavespeed
 Run WaveSpeed AI models with a simple API:
 
 ```javascript
-const WaveSpeed = require('wavespeed');
+import wavespeed from 'wavespeed';
 
-const client = new WaveSpeed('your-api-key');
+const output = await wavespeed.run(
+  "wavespeed-ai/z-image/turbo",
+  { prompt: "Cat" }
+);
 
-const prediction = await client.run('wavespeed-ai/z-image/turbo', {
-  prompt: 'Cat'
-});
-
-console.log(prediction.outputs[0]);  // Output URL
-```
-
-Or with TypeScript:
-
-```typescript
-import WaveSpeed from 'wavespeed';
-
-const client = new WaveSpeed('your-api-key');
-
-const prediction = await client.run('wavespeed-ai/z-image/turbo', {
-  prompt: 'Cat'
-});
-
-console.log(prediction.outputs[0]);  // Output URL
+console.log(output["outputs"][0]);  // Output URL
 ```
 
 ### Authentication
@@ -65,21 +50,21 @@ export WAVESPEED_API_KEY="your-api-key"
 Or pass it directly:
 
 ```javascript
-const WaveSpeed = require('wavespeed');
+import { Client } from 'wavespeed';
 
-const client = new WaveSpeed('your-api-key');
-const prediction = await client.run('wavespeed-ai/z-image/turbo', { prompt: 'Cat' });
+const client = new Client("your-api-key");
+const output = await client.run("wavespeed-ai/z-image/turbo", { prompt: "Cat" });
 ```
 
 ### Options
 
 ```javascript
-const prediction = await client.run(
-  'wavespeed-ai/z-image/turbo',
-  { prompt: 'Cat' },
+const output = await wavespeed.run(
+  "wavespeed-ai/z-image/turbo",
+  { prompt: "Cat" },
   {
-    timeout: 36000,         // Max wait time in seconds (default: 36000)
-    pollInterval: 1,        // Status check interval (default: 1)
+    timeout: 36000.0,       // Max wait time in seconds (default: 36000.0)
+    pollInterval: 1.0,      // Status check interval (default: 1.0)
     enableSyncMode: false,  // Single request mode, no polling (default: false)
   }
 );
@@ -92,9 +77,9 @@ Use `enableSyncMode: true` for a single request that waits for the result (no po
 > **Note:** Not all models support sync mode. Check the model documentation for availability.
 
 ```javascript
-const prediction = await client.run(
-  'wavespeed-ai/z-image/turbo',
-  { prompt: 'Cat' },
+const output = await wavespeed.run(
+  "wavespeed-ai/z-image/turbo",
+  { prompt: "Cat" },
   { enableSyncMode: true }
 );
 ```
@@ -104,12 +89,12 @@ const prediction = await client.run(
 Configure retries at the client level:
 
 ```javascript
-const WaveSpeed = require('wavespeed');
+import { Client } from 'wavespeed';
 
-const client = new WaveSpeed('your-api-key', {
+const client = new Client("your-api-key", {
   maxRetries: 0,            // Task-level retries (default: 0)
-  maxConnectionRetries: 3,  // HTTP connection retries (default: 3)
-  retryInterval: 1,         // Base delay between retries in seconds (default: 1)
+  maxConnectionRetries: 5,  // HTTP connection retries (default: 5)
+  retryInterval: 1.0,       // Base delay between retries in seconds (default: 1.0)
 });
 ```
 
@@ -118,10 +103,23 @@ const client = new WaveSpeed('your-api-key', {
 Upload images, videos, or audio files:
 
 ```javascript
-const WaveSpeed = require('wavespeed');
+import wavespeed from 'wavespeed';
 
-const url = await client.upload('/path/to/image.png');
+const url = await wavespeed.upload("/path/to/image.png");
 console.log(url);
+```
+
+## Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run a single test file
+npm test -- tests/test_api.ts
+
+# Run a specific test
+npm test -- tests/test_api.ts -t "run success"
 ```
 
 ## Environment Variables
