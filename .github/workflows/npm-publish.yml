@@ -1,5 +1,5 @@
 # This workflow will publish the package to npm when a release is created
-# Note: npm publishing is currently disabled (no NPM_TOKEN configured)
+# Uses OIDC trusted publishing for secure, tokenless authentication
 
 name: npm-publish
 
@@ -10,22 +10,23 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0 # for tags
+        fetch-depth: 0
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
         cache: 'npm'
-        # registry-url: 'https://registry.npmjs.org'  # Disabled: no npm account
+        registry-url: 'https://registry.npmjs.org'
 
     - name: Install dependencies
       run: npm ci
@@ -33,10 +34,5 @@ jobs:
     - name: Build package
       run: npm run build
 
-    # Disabled: npm publishing (no NPM_TOKEN configured)
-    # Uncomment the following steps when npm account is ready:
-    #
-    # - name: Publish to npm
-    #   run: npm publish
-    #   env:
-    #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    - name: Publish to npm
+      run: npm publish --provenance --access public
