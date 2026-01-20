@@ -18,6 +18,10 @@
 
 ---
 
+## Introduction
+
+**WaveSpeedAI** JavaScript/TypeScript SDK — Official JS/TS SDK for **WaveSpeedAI** inference platform. This library offers a clean, unified, and high-performance API for your applications.
+
 ## Installation
 
 ```bash
