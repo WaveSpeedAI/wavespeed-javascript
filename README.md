@@ -70,6 +70,7 @@ const output = await wavespeed.run(
     timeout: 36000.0,       // Max wait time in seconds (default: 36000.0)
     pollInterval: 1.0,      // Status check interval (default: 1.0)
     enableSyncMode: false,  // Single request mode, no polling (default: false)
+    webhookUrl: undefined,  // Webhook URL to receive task completion notifications (optional)
   }
 );
 ```
@@ -101,6 +102,22 @@ const client = new Client("your-api-key", {
   retryInterval: 1.0,       // Base delay between retries in seconds (default: 1.0)
 });
 ```
+
+### Webhooks
+
+Receive automatic notifications when your AI generation tasks complete — no polling required.
+
+```javascript
+const output = await wavespeed.run(
+  "wavespeed-ai/z-image/turbo",
+  { prompt: "Cat" },
+  {
+    webhookUrl: "https://your.app.user/endpoints"
+  }
+);
+```
+
+> **Note:** Your webhook endpoint must be publicly accessible via HTTPS and respond within 20 minutes. See the [webhook documentation](https://wavespeed.ai/docs/how-to-use-webhooks) for more details.
 
 ### Upload Files
 
