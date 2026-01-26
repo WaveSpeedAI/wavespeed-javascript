@@ -47,6 +47,7 @@ function _getDefaultClient(): Client {
  *     options.pollInterval: Interval between status checks in seconds.
  *     options.enableSyncMode: If true, use synchronous mode (single request).
  *     options.maxRetries: Maximum retries for this request (overrides default setting).
+ *     options.webhookUrl: Webhook URL to receive task completion notifications.
  *
  * Returns:
  *     Dict containing "outputs" array with model outputs.
@@ -75,6 +76,13 @@ function _getDefaultClient(): Client {
  *         "wavespeed-ai/z-image/turbo",
  *         { prompt: "A cat" },
  *         { maxRetries: 3 }
+ *     );
+ *
+ *     // With webhook
+ *     const output4 = await run(
+ *         "wavespeed-ai/z-image/turbo",
+ *         { prompt: "A cat" },
+ *         { webhookUrl: "https://your.app.user/endpoints" }
  *     );
  */
 export async function run(

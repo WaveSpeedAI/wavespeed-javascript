@@ -12,6 +12,7 @@ export interface RunOptions {
   pollInterval?: number;      // Interval between status checks in seconds
   enableSyncMode?: boolean;   // If true, use synchronous mode (single request)
   maxRetries?: number;        // Maximum task-level retries (overrides client setting)
+  webhookUrl?: string;        // Webhook URL to receive task completion notifications
 }
 
 /**
@@ -106,6 +107,7 @@ export class Client {
    *     input: Input parameters.
    *     enableSyncMode: If true, wait for result in single request.
    *     timeout: Request timeout in seconds.
+   *     webhookUrl: Webhook URL to receive task completion notifications.
    *
    * Returns:
    *     Tuple of [requestId, result]. In async mode, result is null.
@@ -118,9 +120,18 @@ export class Client {
     model: string,
     input?: Record<string, any>,
     enableSyncMode: boolean = false,
-    timeout?: number
+    timeout?: number,
+    webhookUrl?: string
   ): Promise<[string | null, Record<string, any> | null]> {
-    const url = `${this.baseUrl}/api/v3/${model}`;
+    let url = `${this.baseUrl}/api/v3/${model}`;
+    
+    // Add webhook as query parameter if provided
+    if (webhookUrl) {
+      const urlObj = new URL(url);
+      urlObj.searchParams.set('webhook', webhookUrl);
+      url = urlObj.toString();
+    }
+    
     const body = input ? { ...input } : {};
 
     if (enableSyncMode) {
@@ -362,6 +373,7 @@ export class Client {
    *     options.pollInterval: Interval between status checks in seconds.
    *     options.enableSyncMode: If true, use synchronous mode (single request).
    *     options.maxRetries: Maximum task-level retries (overrides client setting).
+   *     options.webhookUrl: Webhook URL to receive task completion notifications.
    *
    * Returns:
    *     Dict containing "outputs" array with model outputs.
@@ -380,6 +392,7 @@ export class Client {
     const timeout = options?.timeout ?? this.timeout;
     const pollInterval = options?.pollInterval ?? 1.0;
     const enableSyncMode = options?.enableSyncMode ?? false;
+    const webhookUrl = options?.webhookUrl;
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= taskRetries; attempt++) {
@@ -388,7 +401,8 @@ export class Client {
           model,
           input,
           enableSyncMode,
-          timeout
+          timeout,
+          webhookUrl
         );
 
         if (enableSyncMode) {
