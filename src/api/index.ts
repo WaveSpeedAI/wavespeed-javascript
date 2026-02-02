@@ -19,10 +19,10 @@
  */
 
 import { Client } from './client';
-import type { RunOptions } from './client';
+import type { RunOptions, RunDetail, RunNoThrowResult } from './client';
 
 export { Client };
-export type { RunOptions };
+export type { RunOptions, RunDetail, RunNoThrowResult };
 
 // Default client instance
 let _defaultClient: Client | null = null;

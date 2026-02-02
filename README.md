@@ -113,6 +113,22 @@ const url = await wavespeed.upload("/path/to/image.png");
 console.log(url);
 ```
 
+### Getting Task ID and Debug Information
+
+If you need access to the task ID for logging, tracking, or debugging, use `runNoThrow()` instead of `run()`. This method returns detailed information and does not throw exceptions:
+
+```javascript
+const result = await client.runNoThrow(model, input);
+
+if (result.outputs) {
+  console.log("Success:", result.outputs);
+  console.log("Task ID:", result.detail.taskId);  // For tracking/debugging
+} else {
+  console.log("Failed:", result.detail.error);
+  console.log("Task ID:", result.detail.taskId);  // Still available on failure
+}
+```
+
 ## Running Tests
 
 ```bash

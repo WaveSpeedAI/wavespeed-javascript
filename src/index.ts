@@ -22,10 +22,10 @@ import './config';
 
 // Import API client
 import { Client, run, upload } from './api';
-import type { RunOptions } from './api/client';
+import type { RunOptions, RunDetail, RunNoThrowResult } from './api/client';
 
 export { version, Client, run, upload };
-export type { RunOptions };
+export type { RunOptions, RunDetail, RunNoThrowResult };
 
 // Default export (Client class)
 export default Client;

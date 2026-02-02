@@ -15,6 +15,25 @@ export interface RunOptions {
 }
 
 /**
+ * Detail information for runNoThrow result.
+ */
+export interface RunDetail {
+  taskId: string;             // Task ID for tracking and debugging
+  status: 'completed' | 'failed';  // Task status
+  model: string;              // Model identifier
+  error?: string;             // Error message if failed
+  createdAt?: string;         // Task creation timestamp
+}
+
+/**
+ * Result interface for runNoThrow method.
+ */
+export interface RunNoThrowResult {
+  outputs: any[] | null;      // Model outputs (null if failed)
+  detail: RunDetail;          // Detailed information including taskId
+}
+
+/**
  * Upload file response interface
  */
 interface UploadFileResp {
@@ -429,6 +448,150 @@ export class Client {
       throw lastError;
     }
     throw new Error(`All ${taskRetries + 1} attempts failed`);
+  }
+
+  /**
+   * Run a model and wait for the output (no-throw version).
+   * 
+   * This method is similar to run() but does not throw exceptions.
+   * Instead, it returns a result object with outputs (null on failure) and detail information.
+   * The detail object always contains the taskId, which is useful for debugging and tracking.
+   *
+   * Args:
+   *     model: Model identifier (e.g., "wavespeed-ai/flux-dev").
+   *     input: Input parameters for the model.
+   *     options.timeout: Maximum time to wait for completion (undefined = no timeout).
+   *     options.pollInterval: Interval between status checks in seconds.
+   *     options.enableSyncMode: If true, use synchronous mode (single request).
+   *     options.maxRetries: Maximum task-level retries (overrides client setting).
+   *
+   * Returns:
+   *     Object containing:
+   *       - outputs: Array of model outputs (null if failed)
+   *       - detail: Object with taskId, status, error (if any), and other metadata
+   *
+   * Example:
+   *     const result = await client.runNoThrow("wavespeed-ai/z-image/turbo", { prompt: "Cat" });
+   *     
+   *     if (result.outputs) {
+   *       console.log("Success:", result.outputs);
+   *       console.log("Task ID:", result.detail.taskId);
+   *     } else {
+   *       console.log("Failed:", result.detail.error);
+   *       console.log("Task ID:", result.detail.taskId);
+   *     }
+   */
+  async runNoThrow(
+    model: string,
+    input?: Record<string, any>,
+    options?: RunOptions
+  ): Promise<RunNoThrowResult> {
+    const taskRetries = options?.maxRetries ?? this.maxRetries;
+    const timeout = options?.timeout ?? this.timeout;
+    const pollInterval = options?.pollInterval ?? 1.0;
+    const enableSyncMode = options?.enableSyncMode ?? false;
+
+    for (let attempt = 0; attempt <= taskRetries; attempt++) {
+      try {
+        const [requestId, syncResult] = await this._submit(
+          model,
+          input,
+          enableSyncMode,
+          timeout
+        );
+
+        if (enableSyncMode) {
+          // In sync mode, extract outputs from the result
+          const data = syncResult?.data || {};
+          const status = data.status;
+          const taskId = data.id || 'unknown';
+
+          if (status !== 'completed') {
+            const error = data.error || 'Unknown error';
+            return {
+              outputs: null,
+              detail: {
+                taskId,
+                status: 'failed',
+                model,
+                error,
+                createdAt: data.created_at
+              }
+            };
+          }
+
+          return {
+            outputs: data.outputs || [],
+            detail: {
+              taskId,
+              status: 'completed',
+              model,
+              createdAt: data.created_at
+            }
+          };
+        }
+
+        if (requestId) {
+          const result = await this._wait(requestId, timeout, pollInterval);
+          return {
+            outputs: result.outputs,
+            detail: {
+              taskId: requestId,
+              status: 'completed',
+              model
+            }
+          };
+        }
+
+        // Should not reach here
+        return {
+          outputs: null,
+          detail: {
+            taskId: 'unknown',
+            status: 'failed',
+            model,
+            error: 'Invalid response from _submit'
+          }
+        };
+
+      } catch (error: any) {
+        const isRetryable = this._isRetryableError(error);
+
+        // If not retryable or last attempt, return error result
+        if (!isRetryable || attempt >= taskRetries) {
+          // Try to extract taskId from error message
+          const taskIdMatch = error.message?.match(/task_id: ([a-f0-9-]+)/);
+          const taskId = taskIdMatch ? taskIdMatch[1] : 'unknown';
+
+          return {
+            outputs: null,
+            detail: {
+              taskId,
+              status: 'failed',
+              model,
+              error: error.message || String(error)
+            }
+          };
+        }
+
+        // Retry
+        console.log(`Task attempt ${attempt + 1}/${taskRetries + 1} failed: ${error}`);
+        const delay = this.retryInterval * (attempt + 1) * 1000;
+        console.log(`Retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    // Should not reach here, but just in case
+    return {
+      outputs: null,
+      detail: {
+        taskId: 'unknown',
+        status: 'failed',
+        model,
+        error: `All ${taskRetries + 1} attempts failed`
+      }
+    };
   }
 
   /**
