@@ -124,8 +124,18 @@ if (result.outputs) {
   console.log("Success:", result.outputs);
   console.log("Task ID:", result.detail.taskId);  // For tracking/debugging
 } else {
-  console.log("Failed:", result.detail.error);
+  console.log("Failed:", result.detail.error.message);  // Error message
   console.log("Task ID:", result.detail.taskId);  // Still available on failure
+  console.log("Stack trace:", result.detail.error.stack);  // Full stack trace
+  
+  // Check specific error types
+  if (result.detail.error instanceof WavespeedTimeoutException) {
+    console.log("Request timed out");
+  } else if (result.detail.error instanceof WavespeedConnectionException) {
+    console.log("Connection failed");
+  } else if (result.detail.error instanceof WavespeedPredictionException) {
+    console.log("Prediction failed");
+  }
 }
 ```
 

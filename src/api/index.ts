@@ -20,9 +20,23 @@
 
 import { Client } from './client';
 import type { RunOptions, RunDetail, RunNoThrowResult } from './client';
+import { 
+  WavespeedException, 
+  WavespeedTimeoutException, 
+  WavespeedConnectionException, 
+  WavespeedPredictionException, 
+  WavespeedUnknownException 
+} from './client';
 
 export { Client };
 export type { RunOptions, RunDetail, RunNoThrowResult };
+export { 
+  WavespeedException, 
+  WavespeedTimeoutException, 
+  WavespeedConnectionException, 
+  WavespeedPredictionException, 
+  WavespeedUnknownException 
+};
 
 // Default client instance
 let _defaultClient: Client | null = null;

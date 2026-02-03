@@ -15,13 +15,67 @@ export interface RunOptions {
 }
 
 /**
+ * Base exception class for WaveSpeed errors
+ */
+export class WavespeedException extends Error {
+  constructor(
+    message: string,
+    public readonly taskId: string = 'unknown',
+    public readonly model: string = ''
+  ) {
+    super(message);
+    this.name = 'WavespeedException';
+  }
+}
+
+/**
+ * Timeout exception
+ */
+export class WavespeedTimeoutException extends WavespeedException {
+  constructor(taskId: string, model: string, public readonly timeout: number) {
+    super(`Prediction timed out after ${timeout} seconds`, taskId, model);
+    this.name = 'WavespeedTimeoutException';
+  }
+}
+
+/**
+ * Connection exception
+ */
+export class WavespeedConnectionException extends WavespeedException {
+  constructor(taskId: string, model: string, details: string) {
+    super(`Connection failed: ${details}`, taskId, model);
+    this.name = 'WavespeedConnectionException';
+  }
+}
+
+/**
+ * Prediction failed exception
+ */
+export class WavespeedPredictionException extends WavespeedException {
+  constructor(taskId: string, model: string, errorMessage: string) {
+    super(`Prediction failed: ${errorMessage}`, taskId, model);
+    this.name = 'WavespeedPredictionException';
+  }
+}
+
+/**
+ * Unknown exception
+ */
+export class WavespeedUnknownException extends WavespeedException {
+  constructor(taskId: string, model: string, originalError: any) {
+    super(String(originalError), taskId, model);
+    this.name = 'WavespeedUnknownException';
+  }
+}
+
+/**
  * Detail information for runNoThrow result.
  */
 export interface RunDetail {
   taskId: string;             // Task ID for tracking and debugging
   status: 'completed' | 'failed';  // Task status
   model: string;              // Model identifier
-  error?: string;             // Error message if failed
+  error?: WavespeedException; // Exception instance if failed
   createdAt?: string;         // Task creation timestamp
 }
 
@@ -507,14 +561,14 @@ export class Client {
           const taskId = data.id || 'unknown';
 
           if (status !== 'completed') {
-            const error = data.error || 'Unknown error';
+            const errorMsg = data.error || 'Unknown error';
             return {
               outputs: null,
               detail: {
                 taskId,
                 status: 'failed',
                 model,
-                error,
+                error: new WavespeedPredictionException(taskId, model, errorMsg),
                 createdAt: data.created_at
               }
             };
@@ -550,7 +604,7 @@ export class Client {
             taskId: 'unknown',
             status: 'failed',
             model,
-            error: 'Invalid response from _submit'
+            error: new WavespeedUnknownException('unknown', model, 'Invalid response from _submit')
           }
         };
 
@@ -563,13 +617,28 @@ export class Client {
           const taskIdMatch = error.message?.match(/task_id: ([a-f0-9-]+)/);
           const taskId = taskIdMatch ? taskIdMatch[1] : 'unknown';
 
+          // Determine exception type based on error
+          let exception: WavespeedException;
+          const errorStr = error.toString().toLowerCase();
+          
+          if (errorStr.includes('timeout') || errorStr.includes('timed out')) {
+            exception = new WavespeedTimeoutException(taskId, model, timeout || 0);
+          } else if (errorStr.includes('connection') || errorStr.includes('fetch') || error.name === 'AbortError' || error.name === 'TypeError') {
+            exception = new WavespeedConnectionException(taskId, model, error.message || String(error));
+          } else if (errorStr.includes('prediction failed')) {
+            const errorMsg = error.message?.replace(/Prediction failed \(task_id: [a-f0-9-]+\): /, '') || 'Unknown error';
+            exception = new WavespeedPredictionException(taskId, model, errorMsg);
+          } else {
+            exception = new WavespeedUnknownException(taskId, model, error);
+          }
+
           return {
             outputs: null,
             detail: {
               taskId,
               status: 'failed',
               model,
-              error: error.message || String(error)
+              error: exception
             }
           };
         }
@@ -589,7 +658,7 @@ export class Client {
         taskId: 'unknown',
         status: 'failed',
         model,
-        error: `All ${taskRetries + 1} attempts failed`
+        error: new WavespeedUnknownException('unknown', model, `All ${taskRetries + 1} attempts failed`)
       }
     };
   }
