@@ -26,6 +26,7 @@ import type { RunOptions, RunDetail, RunNoThrowResult } from './api/client';
 import { 
   WavespeedException, 
   WavespeedTimeoutException, 
+  WavespeedSyncTimeoutException,
   WavespeedConnectionException, 
   WavespeedPredictionException, 
   WavespeedUnknownException 
@@ -36,6 +37,7 @@ export type { RunOptions, RunDetail, RunNoThrowResult };
 export { 
   WavespeedException, 
   WavespeedTimeoutException, 
+  WavespeedSyncTimeoutException,
   WavespeedConnectionException, 
   WavespeedPredictionException, 
   WavespeedUnknownException 
