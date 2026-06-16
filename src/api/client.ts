@@ -10,7 +10,7 @@ import { api as apiConfig } from '../config';
 export interface RunOptions {
   timeout?: number;           // Maximum time to wait for completion
   pollInterval?: number;      // Interval between status checks in seconds
-  enableSyncMode?: boolean;   // If true, use synchronous mode (single request)
+  enableSyncMode?: boolean;   // If true, attempt synchronous mode in one request
   maxRetries?: number;        // Maximum task-level retries (overrides client setting)
 }
 
@@ -35,6 +35,24 @@ export class WavespeedTimeoutException extends WavespeedException {
   constructor(taskId: string, model: string, public readonly timeout: number) {
     super(`Prediction timed out after ${timeout} seconds`, taskId, model);
     this.name = 'WavespeedTimeoutException';
+  }
+}
+
+/**
+ * Sync-mode wait timed out, but the task is still processing asynchronously
+ */
+export class WavespeedSyncTimeoutException extends WavespeedException {
+  constructor(
+    taskId: string,
+    model: string,
+    errorMessage: string,
+    public readonly resultUrl?: string
+  ) {
+    const suffix = resultUrl && !errorMessage.includes(resultUrl)
+      ? ` Query the result later at: ${resultUrl}`
+      : '';
+    super(`Sync mode timed out (task_id: ${taskId}): ${errorMessage}${suffix}`, taskId, model);
+    this.name = 'WavespeedSyncTimeoutException';
   }
 }
 
@@ -73,10 +91,11 @@ export class WavespeedUnknownException extends WavespeedException {
  */
 export interface RunDetail {
   taskId: string;             // Task ID for tracking and debugging
-  status: 'completed' | 'failed';  // Task status
+  status: 'completed' | 'failed' | 'processing';  // Task status
   model: string;              // Model identifier
   error?: WavespeedException; // Exception instance if failed
   createdAt?: string;         // Task creation timestamp
+  resultUrl?: string;         // URL for querying the task result later
 }
 
 /**
@@ -108,7 +127,7 @@ interface UploadFileResp {
  *     const client = new Client("your-api-key");
  *     const output = await client.run("wavespeed-ai/z-image/turbo", { prompt: "Cat" });
  *
- *     // With sync mode (single request, waits for result)
+ *     // With sync mode (best-effort single request, waits for result)
  *     const output2 = await client.run("wavespeed-ai/z-image/turbo", { prompt: "Cat" }, { enableSyncMode: true });
  *
  *     // With retry
@@ -413,6 +432,9 @@ export class Client {
 
     // Always retry timeout and connection errors
     const errorStr = error.toString().toLowerCase();
+    if (errorStr.includes('sync mode timed out')) {
+      return false;
+    }
     if (errorStr.includes('timeout') || errorStr.includes('connection')) {
       return true;
     }
@@ -425,6 +447,35 @@ export class Client {
     return false;
   }
 
+  private _resultUrlFromData(data: Record<string, any>): string | undefined {
+    const urls = data.urls;
+    return urls && typeof urls === 'object' && typeof urls.get === 'string'
+      ? urls.get
+      : undefined;
+  }
+
+  private _isSyncTimeoutData(data: Record<string, any>): boolean {
+    const error = data.error || '';
+    return data.code === 5004 ||
+      (data.status === 'processing' && typeof error === 'string' && error.includes('Sync mode timed out'));
+  }
+
+  private _syncModeError(data: Record<string, any>, model: string): Error {
+    const error = data.error || 'Unknown error';
+    const taskId = data.id || 'unknown';
+
+    if (this._isSyncTimeoutData(data)) {
+      return new WavespeedSyncTimeoutException(
+        taskId,
+        model,
+        error,
+        this._resultUrlFromData(data)
+      );
+    }
+
+    return new Error(`Prediction failed (task_id: ${taskId}): ${error}`);
+  }
+
   /**
    * Run a model and wait for the output.
    *
@@ -433,7 +484,7 @@ export class Client {
    *     input: Input parameters for the model.
    *     options.timeout: Maximum time to wait for completion (undefined = no timeout).
    *     options.pollInterval: Interval between status checks in seconds.
-   *     options.enableSyncMode: If true, use synchronous mode (single request).
+   *     options.enableSyncMode: If true, use synchronous mode (best-effort single request).
    *     options.maxRetries: Maximum task-level retries (overrides client setting).
    *
    * Returns:
@@ -469,9 +520,7 @@ export class Client {
           const data = syncResult?.data || {};
           const status = data.status;
           if (status !== 'completed') {
-            const error = data.error || 'Unknown error';
-            const requestId = data.id || 'unknown';
-            throw new Error(`Prediction failed (task_id: ${requestId}): ${error}`);
+            throw this._syncModeError(data, model);
           }
           return { outputs: data.outputs || [] };
         }
@@ -516,7 +565,7 @@ export class Client {
    *     input: Input parameters for the model.
    *     options.timeout: Maximum time to wait for completion (undefined = no timeout).
    *     options.pollInterval: Interval between status checks in seconds.
-   *     options.enableSyncMode: If true, use synchronous mode (single request).
+   *     options.enableSyncMode: If true, use synchronous mode (best-effort single request).
    *     options.maxRetries: Maximum task-level retries (overrides client setting).
    *
    * Returns:
@@ -562,14 +611,19 @@ export class Client {
 
           if (status !== 'completed') {
             const errorMsg = data.error || 'Unknown error';
+            const resultUrl = this._resultUrlFromData(data);
+            const isSyncTimeout = this._isSyncTimeoutData(data);
             return {
               outputs: null,
               detail: {
                 taskId,
-                status: 'failed',
+                status: isSyncTimeout ? 'processing' : 'failed',
                 model,
-                error: new WavespeedPredictionException(taskId, model, errorMsg),
-                createdAt: data.created_at
+                error: isSyncTimeout
+                  ? new WavespeedSyncTimeoutException(taskId, model, errorMsg, resultUrl)
+                  : new WavespeedPredictionException(taskId, model, errorMsg),
+                createdAt: data.created_at,
+                resultUrl
               }
             };
           }
@@ -614,19 +668,28 @@ export class Client {
         // If not retryable or last attempt, return error result
         if (!isRetryable || attempt >= taskRetries) {
           // Try to extract taskId from error message
-          const taskIdMatch = error.message?.match(/task_id: ([a-f0-9-]+)/);
+          const taskIdMatch = error.message?.match(/task_id:\s*([^)]+)/);
           const taskId = taskIdMatch ? taskIdMatch[1] : 'unknown';
+          const resultUrlMatch = error.message?.match(/Query the result later at:\s*(\S+)/);
+          const resultUrl = resultUrlMatch ? resultUrlMatch[1] : undefined;
 
           // Determine exception type based on error
           let exception: WavespeedException;
           const errorStr = error.toString().toLowerCase();
           
-          if (errorStr.includes('timeout') || errorStr.includes('timed out')) {
+          if (errorStr.includes('sync mode timed out')) {
+            exception = new WavespeedSyncTimeoutException(
+              taskId,
+              model,
+              error.message?.replace(/Sync mode timed out \(task_id: [^)]+\):\s*/, '') || String(error),
+              resultUrl
+            );
+          } else if (errorStr.includes('timeout') || errorStr.includes('timed out')) {
             exception = new WavespeedTimeoutException(taskId, model, timeout || 0);
           } else if (errorStr.includes('connection') || errorStr.includes('fetch') || error.name === 'AbortError' || error.name === 'TypeError') {
             exception = new WavespeedConnectionException(taskId, model, error.message || String(error));
           } else if (errorStr.includes('prediction failed')) {
-            const errorMsg = error.message?.replace(/Prediction failed \(task_id: [a-f0-9-]+\): /, '') || 'Unknown error';
+            const errorMsg = error.message?.replace(/Prediction failed \(task_id: [^)]+\): /, '') || 'Unknown error';
             exception = new WavespeedPredictionException(taskId, model, errorMsg);
           } else {
             exception = new WavespeedUnknownException(taskId, model, error);
@@ -636,9 +699,10 @@ export class Client {
             outputs: null,
             detail: {
               taskId,
-              status: 'failed',
+              status: errorStr.includes('sync mode timed out') ? 'processing' : 'failed',
               model,
-              error: exception
+              error: exception,
+              resultUrl
             }
           };
         }

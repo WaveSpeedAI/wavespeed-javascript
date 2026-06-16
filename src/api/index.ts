@@ -23,6 +23,7 @@ import type { RunOptions, RunDetail, RunNoThrowResult } from './client';
 import { 
   WavespeedException, 
   WavespeedTimeoutException, 
+  WavespeedSyncTimeoutException,
   WavespeedConnectionException, 
   WavespeedPredictionException, 
   WavespeedUnknownException 
@@ -33,6 +34,7 @@ export type { RunOptions, RunDetail, RunNoThrowResult };
 export { 
   WavespeedException, 
   WavespeedTimeoutException, 
+  WavespeedSyncTimeoutException,
   WavespeedConnectionException, 
   WavespeedPredictionException, 
   WavespeedUnknownException 
@@ -59,7 +61,7 @@ function _getDefaultClient(): Client {
  *     input: Input parameters for the model.
  *     options.timeout: Maximum time to wait for completion (undefined = no timeout).
  *     options.pollInterval: Interval between status checks in seconds.
- *     options.enableSyncMode: If true, use synchronous mode (single request).
+ *     options.enableSyncMode: If true, use synchronous mode (best-effort single request).
  *     options.maxRetries: Maximum retries for this request (overrides default setting).
  *
  * Returns:

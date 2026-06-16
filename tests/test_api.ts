@@ -3,7 +3,7 @@
  */
 
 import * as wavespeed from '../src/index';
-import { Client } from '../src/api/client';
+import { Client, WavespeedSyncTimeoutException } from '../src/api/client';
 import { api as apiConfig } from '../src/config';
 
 // Mock fetch globally
@@ -222,6 +222,68 @@ describe('Client', () => {
     await expect(
       client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' }, { enableSyncMode: true })
     ).rejects.toThrow('Prediction failed (task_id: req-456): Model error');
+  });
+
+  test('run sync mode timeout raises queryable error', async () => {
+    const resultUrl = 'https://api.wavespeed.ai/api/v3/predictions/req-timeout/result';
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          id: 'req-timeout',
+          status: 'processing',
+          code: 5004,
+          error: 'Sync mode timed out after 90 seconds. The prediction is still processing asynchronously.',
+          urls: { get: resultUrl }
+        }
+      }),
+    };
+
+    (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+    const client = new Client('test-key');
+
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' }, { enableSyncMode: true, maxRetries: 1 })
+    ).rejects.toThrow(WavespeedSyncTimeoutException);
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' }, { enableSyncMode: true })
+    ).rejects.toThrow(resultUrl);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('runNoThrow sync mode timeout returns processing detail', async () => {
+    const resultUrl = 'https://api.wavespeed.ai/api/v3/predictions/req-timeout/result';
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          id: 'req-timeout',
+          status: 'processing',
+          code: 5004,
+          error: 'Sync mode timed out after 90 seconds. The prediction is still processing asynchronously.',
+          urls: { get: resultUrl }
+        }
+      }),
+    };
+
+    (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+    const client = new Client('test-key');
+    const result = await client.runNoThrow(
+      'wavespeed-ai/z-image/turbo',
+      { prompt: 'test' },
+      { enableSyncMode: true }
+    );
+
+    expect(result.outputs).toBeNull();
+    expect(result.detail.status).toBe('processing');
+    expect(result.detail.taskId).toBe('req-timeout');
+    expect(result.detail.resultUrl).toBe(resultUrl);
+    expect(result.detail.error).toBeInstanceOf(WavespeedSyncTimeoutException);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   test('_submit no request id', async () => {
