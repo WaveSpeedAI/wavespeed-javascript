@@ -4,9 +4,9 @@
  * Provides a simple interface to run WaveSpeed AI models.
  *
  * Example usage:
- *     import wavespeed from 'wavespeed';
+ *     import { run, upload } from 'wavespeed';
  *
- *     const output = await wavespeed.run(
+ *     const output = await run(
  *         "wavespeed-ai/z-image/turbo",
  *         { prompt: "A beautiful sunset over mountains" }
  *     );
@@ -14,7 +14,7 @@
  *     console.log(output["outputs"][0]);  // First output URL
  *
  *     // Upload a file
- *     const url = await wavespeed.upload("/path/to/image.png");
+ *     const url = await upload("/path/to/image.png");
  *     console.log(url);
  */
 

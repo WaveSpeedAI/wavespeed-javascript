@@ -5,9 +5,9 @@
  * Effortlessly connect to all WaveSpeedAI models and inference services with zero infrastructure overhead.
  *
  * Example usage:
- *     import wavespeed from 'wavespeed';
+ *     import { run } from 'wavespeed';
  *
- *     const output = await wavespeed.run(
+ *     const output = await run(
  *         "wavespeed-ai/z-image/turbo",
  *         { prompt: "A beautiful sunset" }
  *     );

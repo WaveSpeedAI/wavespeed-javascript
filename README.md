@@ -33,9 +33,9 @@ npm install wavespeed
 Run WaveSpeed AI models with a simple API:
 
 ```javascript
-import wavespeed from 'wavespeed';
+import { run } from 'wavespeed';
 
-const output = await wavespeed.run(
+const output = await run(
   "wavespeed-ai/z-image/turbo",
   { prompt: "Cat" }
 );
@@ -63,7 +63,9 @@ const output = await client.run("wavespeed-ai/z-image/turbo", { prompt: "Cat" })
 ### Options
 
 ```javascript
-const output = await wavespeed.run(
+import { run } from 'wavespeed';
+
+const output = await run(
   "wavespeed-ai/z-image/turbo",
   { prompt: "Cat" },
   {
@@ -84,7 +86,9 @@ processing and can be queried later.
 > **Note:** Not all models support sync mode. Check the model documentation for availability.
 
 ```javascript
-const output = await wavespeed.run(
+import { run } from 'wavespeed';
+
+const output = await run(
   "wavespeed-ai/z-image/turbo",
   { prompt: "Cat" },
   { enableSyncMode: true }
@@ -110,9 +114,9 @@ const client = new Client("your-api-key", {
 Upload images, videos, or audio files:
 
 ```javascript
-import wavespeed from 'wavespeed';
+import { upload } from 'wavespeed';
 
-const url = await wavespeed.upload("/path/to/image.png");
+const url = await upload("/path/to/image.png");
 console.log(url);
 ```
 
