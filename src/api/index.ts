@@ -24,7 +24,8 @@ import {
   WavespeedException, 
   WavespeedTimeoutException, 
   WavespeedSyncTimeoutException,
-  WavespeedConnectionException, 
+  WavespeedConnectionException,
+  WavespeedSubmissionException,
   WavespeedPredictionException, 
   WavespeedUnknownException 
 } from './client';
@@ -35,7 +36,8 @@ export {
   WavespeedException, 
   WavespeedTimeoutException, 
   WavespeedSyncTimeoutException,
-  WavespeedConnectionException, 
+  WavespeedConnectionException,
+  WavespeedSubmissionException,
   WavespeedPredictionException, 
   WavespeedUnknownException 
 };
@@ -57,7 +59,7 @@ function _getDefaultClient(): Client {
  * Run a model and wait for the output.
  *
  * Args:
- *     model: Model identifier (e.g., "wavespeed-ai/flux-dev").
+ *     model: Model identifier (e.g., "wavespeed-ai/z-image/turbo").
  *     input: Input parameters for the model.
  *     options.timeout: Maximum time to wait for completion (undefined = no timeout).
  *     options.pollInterval: Interval between status checks in seconds.
@@ -86,11 +88,12 @@ function _getDefaultClient(): Client {
  *         { enableSyncMode: true }
  *     );
  *
- *     // With retry
+ *     // Keep replacement task attempts disabled unless your workload accepts
+ *     // a new task after a confirmed terminal failure.
  *     const output3 = await run(
  *         "wavespeed-ai/z-image/turbo",
  *         { prompt: "A cat" },
- *         { maxRetries: 3 }
+ *         { maxRetries: 0 }
  *     );
  */
 export async function run(

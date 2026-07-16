@@ -27,7 +27,8 @@ import {
   WavespeedException, 
   WavespeedTimeoutException, 
   WavespeedSyncTimeoutException,
-  WavespeedConnectionException, 
+  WavespeedConnectionException,
+  WavespeedSubmissionException,
   WavespeedPredictionException, 
   WavespeedUnknownException 
 } from './api';
@@ -38,7 +39,8 @@ export {
   WavespeedException, 
   WavespeedTimeoutException, 
   WavespeedSyncTimeoutException,
-  WavespeedConnectionException, 
+  WavespeedConnectionException,
+  WavespeedSubmissionException,
   WavespeedPredictionException, 
   WavespeedUnknownException 
 };

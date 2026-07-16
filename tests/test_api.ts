@@ -302,38 +302,32 @@ describe('Client', () => {
     ).rejects.toThrow('No request ID in response');
   });
 
-  test('_submit connection retry', async () => {
-    const connectionError = new Error('fetch failed');
-    connectionError.name = 'TypeError';
-
-    const mockSuccessResponse = {
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { id: 'req-123' } }),
-    };
-
-    (global.fetch as jest.Mock)
-      .mockRejectedValueOnce(connectionError)
-      .mockResolvedValueOnce(mockSuccessResponse);
-
-    const client = new Client('test-key', { maxConnectionRetries: 1 });
-    const [requestId] = await (client as any)._submit('wavespeed-ai/z-image/turbo', { prompt: 'test' });
-
-    expect(requestId).toBe('req-123');
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  test('_submit max connection retries exceeded', async () => {
+  test('_submit connection error is not retried', async () => {
     const connectionError = new Error('fetch failed');
     connectionError.name = 'TypeError';
 
     (global.fetch as jest.Mock).mockRejectedValue(connectionError);
 
-    const client = new Client('test-key', { maxConnectionRetries: 1 });
+    const client = new Client('test-key', { maxConnectionRetries: 5 });
 
     await expect(
       (client as any)._submit('wavespeed-ai/z-image/turbo', { prompt: 'test' })
-    ).rejects.toThrow('Failed to submit prediction after 2 attempts');
+    ).rejects.toThrow('will not retry the POST');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('task retries do not repeat an ambiguous submission', async () => {
+    const connectionError = new Error('fetch failed');
+    connectionError.name = 'TypeError';
+
+    (global.fetch as jest.Mock).mockRejectedValue(connectionError);
+
+    const client = new Client('test-key', { maxRetries: 3 });
+
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' })
+    ).rejects.toThrow('will not retry the POST');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   test('_getResult connection retry', async () => {

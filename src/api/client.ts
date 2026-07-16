@@ -67,6 +67,20 @@ export class WavespeedConnectionException extends WavespeedException {
 }
 
 /**
+ * A task submission failed and must not be retried automatically.
+ */
+export class WavespeedSubmissionException extends WavespeedException {
+  constructor(model: string, details: string) {
+    super(
+      `Prediction submission failed: ${details}. The task may already have been created, so the SDK will not retry the POST automatically.`,
+      'unknown',
+      model
+    );
+    this.name = 'WavespeedSubmissionException';
+  }
+}
+
+/**
  * Prediction failed exception
  */
 export class WavespeedPredictionException extends WavespeedException {
@@ -130,8 +144,8 @@ interface UploadFileResp {
  *     // With sync mode (best-effort single request, waits for result)
  *     const output2 = await client.run("wavespeed-ai/z-image/turbo", { prompt: "Cat" }, { enableSyncMode: true });
  *
- *     // With retry
- *     const output3 = await client.run("wavespeed-ai/z-image/turbo", { prompt: "Cat" }, { maxRetries: 3 });
+ *     // Replacement task attempts stay disabled by default.
+ *     const output3 = await client.run("wavespeed-ai/z-image/turbo", { prompt: "Cat" }, { maxRetries: 0 });
  */
 export class Client {
   private apiKey: string;
@@ -151,7 +165,7 @@ export class Client {
    *     options.connectionTimeout: Timeout for HTTP requests in seconds.
    *     options.timeout: Total API call timeout in seconds.
    *     options.maxRetries: Maximum number of retries for the entire operation.
-   *     options.maxConnectionRetries: Maximum retries for individual HTTP requests.
+   *     options.maxConnectionRetries: Maximum retries for result-query GET requests.
    *     options.retryInterval: Base interval between retries in seconds.
    */
   constructor(
@@ -226,69 +240,46 @@ export class Client {
       : this.connectionTimeout;
     const timeoutMs = connectTimeout * 1000;
 
-    let lastError: Error | undefined;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    // Connection-level retries
-    for (let retry = 0; retry <= this.maxConnectionRetries; retry++) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: this._getHeaders(),
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(
-            `Failed to submit prediction: HTTP ${response.status}: ${errorText}`
-          );
-        }
-
-        const result = await response.json();
-
-        if (enableSyncMode) {
-          return [null, result];
-        }
-
-        const requestId = result.data?.id;
-        if (!requestId) {
-          throw new Error(`No request ID in response: ${JSON.stringify(result)}`);
-        }
-
-        return [requestId, null];
-
-      } catch (error: any) {
-        clearTimeout(timeoutId);
-        lastError = error;
-
-        const isConnectionError =
-          error.name === 'AbortError' ||
-          error.name === 'TypeError' ||
-          error.message?.includes('fetch');
-
-        if (isConnectionError && retry < this.maxConnectionRetries) {
-          const delay = this.retryInterval * (retry + 1) * 1000;
-          console.log(`Connection error on attempt ${retry + 1}/${this.maxConnectionRetries + 1}:`);
-          console.error(error);
-          console.log(`Retrying in ${delay}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        } else if (retry >= this.maxConnectionRetries) {
-          throw new Error(
-            `Failed to submit prediction after ${this.maxConnectionRetries + 1} attempts: ${lastError?.message}`
-          );
-        } else {
-          throw error;
-        }
-      }
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: this._getHeaders(),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error: any) {
+      throw new WavespeedSubmissionException(model, error?.message || String(error));
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    throw lastError!;
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new WavespeedSubmissionException(
+        model,
+        `HTTP ${response.status}: ${errorText}`
+      );
+    }
+
+    const result = await response.json();
+
+    if (enableSyncMode) {
+      return [null, result];
+    }
+
+    const requestId = result.data?.id;
+    if (!requestId) {
+      throw new WavespeedSubmissionException(
+        model,
+        `No request ID in response: ${JSON.stringify(result)}`
+      );
+    }
+
+    return [requestId, null];
   }
 
   /**
@@ -430,6 +421,10 @@ export class Client {
   private _isRetryableError(error: any): boolean {
     if (!error) return false;
 
+    if (error instanceof WavespeedSubmissionException) {
+      return false;
+    }
+
     // Always retry timeout and connection errors
     const errorStr = error.toString().toLowerCase();
     if (errorStr.includes('sync mode timed out')) {
@@ -480,7 +475,7 @@ export class Client {
    * Run a model and wait for the output.
    *
    * Args:
-   *     model: Model identifier (e.g., "wavespeed-ai/flux-dev").
+   *     model: Model identifier (e.g., "wavespeed-ai/z-image/turbo").
    *     input: Input parameters for the model.
    *     options.timeout: Maximum time to wait for completion (undefined = no timeout).
    *     options.pollInterval: Interval between status checks in seconds.
@@ -561,7 +556,7 @@ export class Client {
    * The detail object always contains the taskId, which is useful for debugging and tracking.
    *
    * Args:
-   *     model: Model identifier (e.g., "wavespeed-ai/flux-dev").
+   *     model: Model identifier (e.g., "wavespeed-ai/z-image/turbo").
    *     input: Input parameters for the model.
    *     options.timeout: Maximum time to wait for completion (undefined = no timeout).
    *     options.pollInterval: Interval between status checks in seconds.

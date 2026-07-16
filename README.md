@@ -99,8 +99,8 @@ Configure retries at the client level:
 import { Client } from 'wavespeed';
 
 const client = new Client("your-api-key", {
-  maxRetries: 0,            // Task-level retries (default: 0)
-  maxConnectionRetries: 5,  // HTTP connection retries (default: 5)
+  maxRetries: 0,            // Replacement task attempts (default: 0)
+  maxConnectionRetries: 5,  // Result-query GET retries; POST is never retried
   retryInterval: 1.0,       // Base delay between retries in seconds (default: 1.0)
 });
 ```

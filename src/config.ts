@@ -31,7 +31,8 @@ export class api {
   // Maximum number of retries for the entire operation (task-level retries)
   static maxRetries: number = 0;
 
-  // Maximum number of retries for individual HTTP requests (connection errors, timeouts)
+  // Maximum retries for idempotent result-query GET requests. Submission
+  // POSTs are intentionally sent at most once.
   static maxConnectionRetries: number = 5;
 
   // Base interval between retries in seconds (actual delay = retryInterval * attempt)
