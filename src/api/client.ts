@@ -131,6 +131,12 @@ interface UploadFileResp {
     download_url: string;
     filename: string;
     size: number;
+    upload: {
+      method: string;
+      url: string;
+      headers: Record<string, string>;
+      expires_at: string;
+    };
   };
 }
 
@@ -749,7 +755,7 @@ export class Client {
       );
     }
 
-    const url = `${this.baseUrl}/api/v3/media/upload/binary`;
+    const url = `${this.baseUrl}/api/v3/media/uploads`;
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
     };
@@ -771,11 +777,8 @@ export class Client {
       throw new Error(`File not found: ${file}`);
     }
 
-    const data = fs.readFileSync(file);
     const filename = path.basename(file);
-    const form = new FormData();
-    const blob = new Blob([data]);
-    form.append('file', blob, filename);
+    const size = fs.statSync(file).size;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -783,8 +786,8 @@ export class Client {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers,
-        body: form,
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, size }),
         signal: controller.signal,
       });
 
@@ -803,6 +806,31 @@ export class Client {
       const downloadUrl = result.data?.download_url;
       if (!downloadUrl) {
         throw new Error('Upload failed: no download_url in response');
+      }
+
+      const instruction = result.data?.upload;
+      if (!instruction?.url || instruction.method.toUpperCase() !== 'PUT') {
+        throw new Error('Upload failed: invalid upload instruction');
+      }
+
+      const data = fs.readFileSync(file);
+      const uploadController = new AbortController();
+      const uploadTimeoutId = setTimeout(() => uploadController.abort(), timeout * 1000);
+      try {
+        const uploadResponse = await fetch(instruction.url, {
+          method: 'PUT',
+          headers: instruction.headers,
+          body: data,
+          signal: uploadController.signal,
+        });
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text();
+          throw new Error(
+            `Failed to upload file: HTTP ${uploadResponse.status}: ${errorText}`
+          );
+        }
+      } finally {
+        clearTimeout(uploadTimeoutId);
       }
 
       return downloadUrl;
