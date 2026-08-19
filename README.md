@@ -6,10 +6,10 @@
     </picture>
   </a>
 
-  <h1>WaveSpeedAI JavaScript SDK</h1>
+  <h1>WaveSpeed JavaScript SDK</h1>
 
   <p>
-    <strong>Official JavaScript/TypeScript SDK for the WaveSpeedAI inference platform</strong>
+    <strong>Official JavaScript/TypeScript SDK for the WaveSpeed inference platform</strong>
   </p>
 
   <p>
@@ -23,7 +23,7 @@
 
 ## Introduction
 
-**WaveSpeedAI** JavaScript/TypeScript SDK — Official JS/TS SDK for **WaveSpeedAI** inference platform. This library offers a clean, unified, and high-performance API for your applications.
+**WaveSpeed** JavaScript/TypeScript SDK — Official JS/TS SDK for the **WaveSpeed** inference platform. This library offers a clean, unified, and high-performance API for your applications.
 
 ## Installation
 

@@ -1,8 +1,8 @@
 /**
- * WaveSpeedAI JavaScript/TypeScript Client — Official JavaScript/TypeScript SDK for WaveSpeedAI inference platform.
+ * WaveSpeed JavaScript/TypeScript Client — Official JavaScript/TypeScript SDK for the WaveSpeed inference platform.
  *
  * This library provides a clean, unified, and high-performance API integration layer for your applications.
- * Effortlessly connect to all WaveSpeedAI models and inference services with zero infrastructure overhead.
+ * Effortlessly connect to all WaveSpeed models and inference services with zero infrastructure overhead.
  *
  * Example usage:
  *     import wavespeed from 'wavespeed';
