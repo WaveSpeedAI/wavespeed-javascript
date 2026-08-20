@@ -11,6 +11,58 @@ import { version } from '../version';
 const DEFAULT_CLIENT_NAME = 'wavespeed-js';
 
 /**
+ * HTTP status codes that are safe to retry on result-query GETs
+ * (transient server errors and rate limiting), matching the Python SDK.
+ */
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+
+/**
+ * Statuses that mean the task has reached a terminal, non-successful state
+ * and polling must stop.
+ */
+const TERMINAL_FAILURE_STATUSES = new Set(['failed', 'cancelled', 'timeout']);
+
+/**
+ * Minimal filename-extension to MIME type mapping used to populate the
+ * content_type field of upload tickets (mirrors Python's mimetypes usage).
+ */
+const MIME_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  svg: 'image/svg+xml',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  mkv: 'video/x-matroska',
+  avi: 'video/x-msvideo',
+  mp3: 'audio/mpeg',
+  wav: 'audio/x-wav',
+  ogg: 'audio/ogg',
+  flac: 'audio/x-flac',
+  m4a: 'audio/mp4',
+  json: 'application/json',
+  txt: 'text/plain',
+  pdf: 'application/pdf',
+  zip: 'application/zip',
+};
+
+/**
+ * Guess the MIME type for a filename; returns undefined when unknown so the
+ * field can be omitted (same behavior as Python's mimetypes.guess_type).
+ */
+function guessContentType(filename: string): string | undefined {
+  const dot = filename.lastIndexOf('.');
+  if (dot < 0) return undefined;
+  return MIME_TYPES[filename.slice(dot + 1).toLowerCase()];
+}
+
+/**
  * Get the lowercase operating system name for the X-Client-OS header.
  * Uses process.platform in Node.js (mapping win32 -> windows) and falls
  * back to user agent parsing in browser environments.
@@ -314,17 +366,19 @@ export class Client {
     }
 
     const requestTimeout = timeout ?? this.timeout;
-    // Use connection timeout for connect, request_timeout for read
-    const connectTimeout = requestTimeout
-      ? Math.min(this.connectionTimeout, requestTimeout)
-      : this.connectionTimeout;
-    const timeoutMs = connectTimeout * 1000;
-
+    // fetch cannot separate the connect phase from the read phase, so the
+    // abort must cover the total request window. Aborting at the (short)
+    // connection timeout would cap the whole request and break sync mode,
+    // which legitimately holds the connection open until the result is ready.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = requestTimeout
+      ? setTimeout(() => controller.abort(), requestTimeout * 1000)
+      : undefined;
 
     let response: Response;
     try {
+      // Single-shot by contract: a submission POST is never retried, since
+      // the task may already have been created server-side.
       response = await fetch(url, {
         method: 'POST',
         headers: this._getHeaders(),
@@ -334,7 +388,9 @@ export class Client {
     } catch (error: any) {
       throw new WavespeedSubmissionException(model, error?.message || String(error));
     } finally {
-      clearTimeout(timeoutId);
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
     }
 
     if (!response.ok) {
@@ -388,29 +444,19 @@ export class Client {
 
     let lastError: Error | undefined;
 
-    // Connection-level retries
+    // Connection-level retries (idempotent GET, safe to repeat)
     for (let retry = 0; retry <= this.maxConnectionRetries; retry++) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+      let response: Response;
       try {
-        const response = await fetch(url, {
+        response = await fetch(url, {
           method: 'GET',
           headers: this._getHeaders(),
           signal: controller.signal,
         });
-
         clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(
-            `Failed to get result for task ${requestId}: HTTP ${response.status}: ${errorText}`
-          );
-        }
-
-        return await response.json();
-
       } catch (error: any) {
         clearTimeout(timeoutId);
         lastError = error;
@@ -426,6 +472,7 @@ export class Client {
           console.error(error);
           console.log(`Retrying in ${delay}ms...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
         } else if (retry >= this.maxConnectionRetries) {
           throw new Error(
             `Failed to get result for task ${requestId} after ${this.maxConnectionRetries + 1} attempts: ${lastError?.message}`
@@ -434,6 +481,32 @@ export class Client {
           throw error;
         }
       }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const httpError = new Error(
+          `Failed to get result for task ${requestId}: HTTP ${response.status}: ${errorText}`
+        );
+
+        // Retry on transient server errors (5xx) and rate limiting (429),
+        // matching the Python SDK's result-query retry policy.
+        if (RETRYABLE_STATUS_CODES.has(response.status)) {
+          lastError = httpError;
+          if (retry < this.maxConnectionRetries) {
+            const delay = this.retryInterval * (retry + 1) * 1000;
+            console.log(
+              `Server error (HTTP ${response.status}) getting result on attempt ` +
+              `${retry + 1}/${this.maxConnectionRetries + 1}, retrying in ${delay}ms...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+        }
+
+        throw httpError;
+      }
+
+      return await response.json();
     }
 
     throw lastError!;
@@ -480,8 +553,10 @@ export class Client {
         return { outputs: data.outputs || [] };
       }
 
-      if (status === 'failed') {
-        const error = data.error || 'Unknown error';
+      if (TERMINAL_FAILURE_STATUSES.has(status)) {
+        // cancelled and timeout are terminal too: keep polling and the task
+        // will never complete, so surface the API's error text and stop.
+        const error = data.error || `Task ${status}`;
         throw new Error(`Prediction failed (task_id: ${requestId}): ${error}`);
       }
 
@@ -854,6 +929,11 @@ export class Client {
 
     const filename = path.basename(file);
     const size = fs.statSync(file).size;
+    const ticketPayload: Record<string, any> = { filename, size };
+    const contentType = guessContentType(filename);
+    if (contentType) {
+      ticketPayload.content_type = contentType;
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -862,7 +942,7 @@ export class Client {
       const response = await fetch(url, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename, size }),
+        body: JSON.stringify(ticketPayload),
         signal: controller.signal,
       });
 

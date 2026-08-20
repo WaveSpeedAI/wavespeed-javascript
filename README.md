@@ -165,6 +165,7 @@ npm test -- tests/test_api.ts -t "run success"
 | Variable | Description |
 |----------|-------------|
 | `WAVESPEED_API_KEY` | WaveSpeed API key |
+| `WAVESPEED_CLIENT_NAME` | Client name reported in the `X-Client-Name` attribution header (takes priority over the `clientName` option) |
 
 ## License
 

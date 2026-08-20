@@ -188,6 +188,59 @@ describe('Client', () => {
     ).rejects.toThrow('Model error');
   });
 
+  test('run treats cancelled status as terminal failure', async () => {
+    const mockSubmitResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: 'req-123' } }),
+    };
+    const mockGetResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: { status: 'cancelled', error: 'Task was cancelled by user' }
+      }),
+    };
+
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(mockSubmitResponse)
+      .mockResolvedValueOnce(mockGetResponse);
+
+    const client = new Client('test-key');
+
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' })
+    ).rejects.toThrow('Task was cancelled by user');
+    // Polling must stop at the terminal status: submit + one result GET only.
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('run treats timeout status as terminal failure', async () => {
+    const mockSubmitResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: 'req-123' } }),
+    };
+    const mockGetResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: { status: 'timeout', error: 'Task execution timed out' }
+      }),
+    };
+
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(mockSubmitResponse)
+      .mockResolvedValueOnce(mockGetResponse);
+
+    const client = new Client('test-key');
+
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' })
+    ).rejects.toThrow('Task execution timed out');
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
   test('run timeout', async () => {
     const mockSubmitResponse = {
       ok: true,
@@ -352,6 +405,33 @@ describe('Client', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  test('_submit abort covers the total timeout, not the connect timeout', async () => {
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: 'req-123' } }),
+    };
+    (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    try {
+      const client = new Client('test-key', { connectionTimeout: 10, timeout: 1800 });
+      const [requestId] = await (client as any)._submit(
+        'wavespeed-ai/z-image/turbo',
+        { prompt: 'test' }
+      );
+
+      expect(requestId).toBe('req-123');
+      // The abort timer must be scheduled for the full request window (sync
+      // mode holds the connection open), not capped at the connect timeout.
+      const abortDelays = setTimeoutSpy.mock.calls.map((call) => call[1]);
+      expect(abortDelays).toContain(1800 * 1000);
+      expect(abortDelays).not.toContain(10 * 1000);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   test('task retries do not repeat an ambiguous submission', async () => {
     const connectionError = new Error('fetch failed');
     connectionError.name = 'TypeError';
@@ -400,11 +480,11 @@ describe('Client', () => {
     ).rejects.toThrow('Failed to get result for task req-123 after 2 attempts');
   });
 
-  test('_getResult http error', async () => {
+  test('_getResult http error (non-retryable status) fails immediately', async () => {
     const mockResponse = {
       ok: false,
-      status: 500,
-      text: async () => 'Internal Server Error',
+      status: 404,
+      text: async () => 'Not Found',
     };
 
     (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
@@ -413,7 +493,48 @@ describe('Client', () => {
 
     await expect(
       (client as any)._getResult('req-123')
-    ).rejects.toThrow('Failed to get result for task req-123: HTTP 500');
+    ).rejects.toThrow('Failed to get result for task req-123: HTTP 404');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('_getResult retries 5xx and succeeds', async () => {
+    const mockErrorResponse = {
+      ok: false,
+      status: 500,
+      text: async () => 'Internal Server Error',
+    };
+    const mockSuccessResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { status: 'completed', outputs: ['out'] } }),
+    };
+
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(mockErrorResponse)
+      .mockResolvedValueOnce(mockSuccessResponse);
+
+    const client = new Client('test-key', { maxConnectionRetries: 2, retryInterval: 0.01 });
+    const result = await (client as any)._getResult('req-123');
+
+    expect(result.data.status).toBe('completed');
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('_getResult retries 429 and exhausts retries', async () => {
+    const mockResponse = {
+      ok: false,
+      status: 429,
+      text: async () => 'Too Many Requests',
+    };
+
+    (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+
+    const client = new Client('test-key', { maxConnectionRetries: 1, retryInterval: 0.01 });
+
+    await expect(
+      (client as any)._getResult('req-123')
+    ).rejects.toThrow('Failed to get result for task req-123: HTTP 429');
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   test('_isRetryableError for timeout', () => {
@@ -550,7 +671,7 @@ describe('Upload', () => {
       'https://api.wavespeed.ai/api/v3/media/uploads',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ filename: 'test.png', size: 15 }),
+        body: JSON.stringify({ filename: 'test.png', size: 15, content_type: 'image/png' }),
       })
     );
     expect(global.fetch).toHaveBeenNthCalledWith(
