@@ -3,6 +3,63 @@
  */
 
 import { api as apiConfig } from '../config';
+import { version } from '../version';
+
+/**
+ * Default client name reported in the X-Client-Name attribution header.
+ */
+const DEFAULT_CLIENT_NAME = 'wavespeed-js';
+
+/**
+ * Get the lowercase operating system name for the X-Client-OS header.
+ * Uses process.platform in Node.js (mapping win32 -> windows) and falls
+ * back to user agent parsing in browser environments.
+ */
+function getOperatingSystem(): string {
+  if (typeof process !== 'undefined' && process.platform) {
+    return process.platform === 'win32' ? 'windows' : process.platform;
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.userAgent) {
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.includes('mac os x') || userAgent.includes('macintosh')) {
+      return 'darwin';
+    } else if (
+      userAgent.includes('windows') ||
+      userAgent.includes('win64') ||
+      userAgent.includes('win32')
+    ) {
+      return 'windows';
+    } else if (userAgent.includes('android')) {
+      return 'android';
+    } else if (
+      userAgent.includes('iphone') ||
+      userAgent.includes('ipad') ||
+      userAgent.includes('ipod')
+    ) {
+      return 'ios';
+    } else if (userAgent.includes('linux')) {
+      return 'linux';
+    }
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Resolve the client name for attribution headers.
+ * Priority: WAVESPEED_CLIENT_NAME env var > explicit option > default.
+ */
+function resolveClientName(explicitName?: string): string {
+  if (
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.WAVESPEED_CLIENT_NAME
+  ) {
+    return process.env.WAVESPEED_CLIENT_NAME;
+  }
+  return explicitName || DEFAULT_CLIENT_NAME;
+}
 
 /**
  * Run options interface.
@@ -156,6 +213,7 @@ interface UploadFileResp {
 export class Client {
   private apiKey: string;
   private baseUrl: string;
+  readonly clientName: string;
   readonly connectionTimeout: number;
   readonly timeout: number;
   readonly maxRetries: number;
@@ -173,11 +231,14 @@ export class Client {
    *     options.maxRetries: Maximum number of retries for the entire operation.
    *     options.maxConnectionRetries: Maximum retries for result-query GET requests.
    *     options.retryInterval: Base interval between retries in seconds.
+   *     options.clientName: Client name reported in the X-Client-Name header
+   *         (the WAVESPEED_CLIENT_NAME environment variable takes priority).
    */
   constructor(
     apiKey?: string,
     options?: {
       baseUrl?: string;
+      clientName?: string;
       connectionTimeout?: number;
       timeout?: number;
       maxRetries?: number;
@@ -192,6 +253,18 @@ export class Client {
     this.maxRetries = options?.maxRetries ?? apiConfig.maxRetries;
     this.maxConnectionRetries = options?.maxConnectionRetries ?? apiConfig.maxConnectionRetries;
     this.retryInterval = options?.retryInterval ?? apiConfig.retryInterval;
+    this.clientName = resolveClientName(options?.clientName);
+  }
+
+  /**
+   * Get channel-attribution headers identifying this client.
+   */
+  private _getClientHeaders(): Record<string, string> {
+    return {
+      'X-Client-Name': this.clientName,
+      'X-Client-Version': version,
+      'X-Client-OS': getOperatingSystem(),
+    };
   }
 
   /**
@@ -207,6 +280,7 @@ export class Client {
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${this.apiKey}`,
+      ...this._getClientHeaders(),
     };
   }
 
@@ -758,6 +832,7 @@ export class Client {
     const url = `${this.baseUrl}/api/v3/media/uploads`;
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
+      ...this._getClientHeaders(),
     };
     const timeout = options?.timeout ?? this.timeout;
     const requestTimeout = Math.min(this.connectionTimeout, timeout);

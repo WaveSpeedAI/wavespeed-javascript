@@ -52,6 +52,42 @@ describe('Client', () => {
     expect(headers['Content-Type']).toBe('application/json');
   });
 
+  test('_getHeaders includes client attribution headers', () => {
+    const client = new Client('test-key');
+    const headers = (client as any)._getHeaders();
+
+    expect(headers['X-Client-Name']).toBe('wavespeed-js');
+    expect(headers['X-Client-Version']).toMatch(/^\d+\.\d+\.\d+/);
+    expect(['darwin', 'linux', 'windows']).toContain(headers['X-Client-OS']);
+  });
+
+  test('clientName option overrides default', () => {
+    const client = new Client('test-key', { clientName: 'my-wrapper' });
+    const headers = (client as any)._getHeaders();
+
+    expect(client.clientName).toBe('my-wrapper');
+    expect(headers['X-Client-Name']).toBe('my-wrapper');
+  });
+
+  test('WAVESPEED_CLIENT_NAME env var wins over clientName option', () => {
+    const original = process.env.WAVESPEED_CLIENT_NAME;
+    process.env.WAVESPEED_CLIENT_NAME = 'env-channel';
+
+    try {
+      const client = new Client('test-key', { clientName: 'my-wrapper' });
+      const headers = (client as any)._getHeaders();
+
+      expect(client.clientName).toBe('env-channel');
+      expect(headers['X-Client-Name']).toBe('env-channel');
+    } finally {
+      if (original === undefined) {
+        delete process.env.WAVESPEED_CLIENT_NAME;
+      } else {
+        process.env.WAVESPEED_CLIENT_NAME = original;
+      }
+    }
+  });
+
   test('_submit success', async () => {
     const mockResponse = {
       ok: true,
