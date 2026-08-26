@@ -20,7 +20,7 @@ const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
  * Statuses that mean the task has reached a terminal, non-successful state
  * and polling must stop.
  */
-const TERMINAL_FAILURE_STATUSES = new Set(['failed', 'cancelled', 'timeout']);
+const TERMINAL_FAILURE_STATUSES = new Set(['failed', 'cancelled', 'timeout', 'deleted']);
 
 /**
  * Minimal filename-extension to MIME type mapping used to populate the
@@ -554,7 +554,7 @@ export class Client {
       }
 
       if (TERMINAL_FAILURE_STATUSES.has(status)) {
-        // cancelled and timeout are terminal too: keep polling and the task
+        // cancelled, timeout, and deleted are terminal too: keep polling and the task
         // will never complete, so surface the API's error text and stop.
         const error = data.error || `Task ${status}`;
         throw new Error(`Prediction failed (task_id: ${requestId}): ${error}`);
@@ -598,10 +598,7 @@ export class Client {
   }
 
   private _resultUrlFromData(data: Record<string, any>): string | undefined {
-    const urls = data.urls;
-    return urls && typeof urls === 'object' && typeof urls.get === 'string'
-      ? urls.get
-      : undefined;
+    return data.id ? `${this.baseUrl}/api/v3/predictions/${data.id}/result` : undefined;
   }
 
   private _isSyncTimeoutData(data: Record<string, any>): boolean {

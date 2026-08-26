@@ -241,6 +241,32 @@ describe('Client', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
+  test('run treats deleted status as terminal failure', async () => {
+    const mockSubmitResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: 'req-123' } }),
+    };
+    const mockGetResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: { status: 'deleted', error: 'Task was deleted' }
+      }),
+    };
+
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(mockSubmitResponse)
+      .mockResolvedValueOnce(mockGetResponse);
+
+    const client = new Client('test-key');
+
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' })
+    ).rejects.toThrow('Task was deleted');
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
   test('run timeout', async () => {
     const mockSubmitResponse = {
       ok: true,
@@ -324,7 +350,6 @@ describe('Client', () => {
           status: 'processing',
           code: 5004,
           error: 'Sync mode timed out after 90 seconds. The prediction is still processing asynchronously.',
-          urls: { get: resultUrl }
         }
       }),
     };
@@ -353,7 +378,6 @@ describe('Client', () => {
           status: 'processing',
           code: 5004,
           error: 'Sync mode timed out after 90 seconds. The prediction is still processing asynchronously.',
-          urls: { get: resultUrl }
         }
       }),
     };
