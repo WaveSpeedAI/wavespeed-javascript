@@ -84,7 +84,7 @@ const url = await upload('/path/to/file');
 - **Sync Mode**: Single request that waits for result (`enableSyncMode`)
 - **Retry Logic**: Configurable task-level and connection-level retries
 - **Timeout Control**: Per-request and overall timeouts
-- **File Upload**: Direct file upload to WaveSpeed storage (each request has a 120s `readTimeout`; the file PUT uses node:http(s) with a socket idle timeout, so large transfers that keep moving are not cut)
+- **File Upload**: Direct file upload to WaveSpeed storage (each request has a 120s read timeout; the file PUT uses node:http(s) with a socket idle timeout, so large transfers that keep moving are not cut)
 - **TypeScript Support**: Full type definitions included
 
 ### Configuration
@@ -93,7 +93,7 @@ Client-level configuration:
 - `baseUrl` - API base URL
 - `pollInterval` - Polling interval in seconds
 - `timeout` - Overall wait cap in seconds (default: none)
-- `readTimeout` - Abort timeout for one async submit/result request (default: 120)
+- `readTimeout` - Override per-request abort timeout for result GET (30s), async submit (60s) and upload (120s); not sync submit
 - `maxRetries` - Task-level retries
 - `maxConnectionRetries` - HTTP connection retries
 - `retryInterval` - Base retry delay in seconds
@@ -110,7 +110,8 @@ Per-request configuration via `RunOptions`:
 - `WAVESPEED_BASE_URL` - Base URL (default: https://api.wavespeed.ai)
 - `WAVESPEED_POLL_INTERVAL` - Poll interval in seconds
 - `WAVESPEED_TIMEOUT` - Overall wait cap in seconds (default: none)
-- `WAVESPEED_READ_TIMEOUT` - Per-request abort timeout in seconds (default: 120)
+- `WAVESPEED_READ_TIMEOUT` - Override all per-request read timeouts (seconds)
+- `WAVESPEED_READ_TIMEOUT_GET` / `_SUBMIT` / `_UPLOAD` - Per-type defaults (30 / 60 / 120)
 - `WAVESPEED_REQUEST_TIMEOUT` - Per-request timeout (internal)
 
 ## Project Structure

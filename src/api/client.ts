@@ -279,7 +279,10 @@ export class Client {
   readonly clientName: string;
   readonly connectionTimeout: number;
   readonly timeout: number | undefined;
-  readonly readTimeout: number;
+  readonly readTimeout: number | undefined;
+  readonly readTimeoutGet: number;
+  readonly readTimeoutSubmit: number;
+  readonly readTimeoutUpload: number;
   readonly maxRetries: number;
   readonly maxConnectionRetries: number;
   readonly retryInterval: number;
@@ -292,7 +295,8 @@ export class Client {
    *     options.baseUrl: Base URL for the API. If not provided, uses wavespeed.config.api.baseUrl.
    *     options.connectionTimeout: Timeout for HTTP requests in seconds.
    *     options.timeout: Overall wait cap in seconds (default: no limit).
-   *     options.readTimeout: Abort timeout for a single async submit/result request in seconds.
+   *     options.readTimeout: Override the per-request abort timeout (result GET 30s,
+   *         async submit 60s, upload 120s by default) for all three; not sync submit.
    *     options.maxRetries: Maximum number of retries for the entire operation.
    *     options.maxConnectionRetries: Maximum retries for result-query GET requests.
    *     options.retryInterval: Base interval between retries in seconds.
@@ -317,6 +321,9 @@ export class Client {
     this.connectionTimeout = options?.connectionTimeout ?? apiConfig.connectionTimeout;
     this.timeout = options?.timeout ?? apiConfig.timeout;
     this.readTimeout = options?.readTimeout ?? apiConfig.readTimeout;
+    this.readTimeoutGet = this.readTimeout ?? apiConfig.readTimeoutGet;
+    this.readTimeoutSubmit = this.readTimeout ?? apiConfig.readTimeoutSubmit;
+    this.readTimeoutUpload = this.readTimeout ?? apiConfig.readTimeoutUpload;
     this.maxRetries = options?.maxRetries ?? apiConfig.maxRetries;
     this.maxConnectionRetries = options?.maxConnectionRetries ?? apiConfig.maxConnectionRetries;
     this.retryInterval = options?.retryInterval ?? apiConfig.retryInterval;
@@ -381,10 +388,10 @@ export class Client {
     }
 
     // An explicit timeout bounds the request as before. Otherwise async submit
-    // uses the bounded readTimeout, while sync mode (the POST stays open until
+    // uses the bounded readTimeoutSubmit, while sync mode (the POST stays open until
     // the task finishes) has no abort timer. fetch cannot separate connect
     // from read, so aborting at the short connection timeout would break sync.
-    const requestTimeout = timeout ?? (enableSyncMode ? undefined : this.readTimeout);
+    const requestTimeout = timeout ?? (enableSyncMode ? undefined : this.readTimeoutSubmit);
     const controller = new AbortController();
     const timeoutId = requestTimeout
       ? setTimeout(() => controller.abort(), requestTimeout * 1000)
@@ -452,11 +459,11 @@ export class Client {
   ): Promise<Record<string, any>> {
     const url = `${this.baseUrl}/api/v3/predictions/${requestId}/result`;
     // Explicit timeout: unchanged (capped by the connection timeout).
-    // Default: the bounded per-request readTimeout.
+    // Default: the bounded per-request readTimeoutGet.
     const timeoutMs =
       (timeout !== undefined
         ? Math.min(this.connectionTimeout, timeout)
-        : this.readTimeout) * 1000;
+        : this.readTimeoutGet) * 1000;
 
     let lastError: Error | undefined;
 
@@ -985,9 +992,9 @@ export class Client {
     const timeout = options?.timeout ?? this.timeout;
     // Explicit timeout: unchanged (ticket capped by the connection timeout,
     // PUT bounded by the total timeout). Default: every request in upload()
-    // uses readTimeout (120s); for the PUT it is an inactivity timeout.
+    // uses readTimeoutUpload (120s); for the PUT it is an inactivity timeout.
     const timeoutMs =
-      (timeout !== undefined ? Math.min(this.connectionTimeout, timeout) : this.readTimeout) * 1000;
+      (timeout !== undefined ? Math.min(this.connectionTimeout, timeout) : this.readTimeoutUpload) * 1000;
 
     // Node.js environment check
     let fs: any;
@@ -1049,7 +1056,7 @@ export class Client {
         instruction.headers || {},
         file,
         size,
-        timeout !== undefined ? undefined : this.readTimeout * 1000,
+        timeout !== undefined ? undefined : this.readTimeoutUpload * 1000,
         timeout !== undefined ? timeout * 1000 : undefined
       );
 

@@ -68,24 +68,24 @@ describe('timeouts', () => {
     expect(res.detail.error).toBeInstanceOf(WavespeedTimeoutException);
   });
 
-  test('async submit and result GET abort timers default to 120s', async () => {
+  test('async submit defaults to 60s and result GET to 30s', async () => {
     const spy = jest.spyOn(global, 'setTimeout');
     const client = new Client('k');
     mockFetch.mockImplementation(async (url: string, init: any) =>
       init.method === 'POST' ? submitOk : completed
     );
     await client.run('m/x', {});
-    expect(abortDelays(spy)).toEqual([120000, 120000]);
+    expect(abortDelays(spy)).toEqual([60000, 30000]);
   });
 
-  test('client readTimeout option overrides the default', async () => {
+  test('client readTimeout override applies to async submit and result GET', async () => {
     const spy = jest.spyOn(global, 'setTimeout');
-    const client = new Client('k', { readTimeout: 30 });
+    const client = new Client('k', { readTimeout: 15 });
     mockFetch.mockImplementation(async (url: string, init: any) =>
       init.method === 'POST' ? submitOk : completed
     );
     await client.run('m/x', {});
-    expect(abortDelays(spy)).toEqual([30000, 30000]);
+    expect(abortDelays(spy)).toEqual([15000, 15000]);
   });
 
   test('sync-mode submit has no abort timer by default, explicit timeout otherwise', async () => {
@@ -98,6 +98,14 @@ describe('timeouts', () => {
     spy.mockClear();
     await client.run('m/x', {}, { enableSyncMode: true, timeout: 77 });
     expect(abortDelays(spy)).toEqual([77000]);
+  });
+
+  test('readTimeout override does not apply to sync-mode submit', async () => {
+    const spy = jest.spyOn(global, 'setTimeout');
+    const client = new Client('k', { readTimeout: 15 });
+    mockFetch.mockResolvedValue(json({ data: { status: 'completed', outputs: ['u'] } }));
+    await client.run('m/x', {}, { enableSyncMode: true });
+    expect(abortDelays(spy)).toEqual([]);
   });
 
   test('explicit timeout keeps per-request limits as before', async () => {

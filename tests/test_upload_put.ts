@@ -176,7 +176,7 @@ describe('upload PUT (node:http)', () => {
     );
   });
 
-  test('ticket request uses the 120s readTimeout by default', async () => {
+  test('ticket request uses the 120s upload timeout by default, override applies', async () => {
     const file = makeFile('t.bin', Buffer.from('x'));
     putHandler = (req, res) => {
       req.resume();
@@ -189,6 +189,11 @@ describe('upload PUT (node:http)', () => {
         .filter(([fn]) => String(fn).includes('abort'))
         .map(([, ms]) => ms);
       expect(delays).toEqual([120000]);
+      spy.mockClear();
+      await new Client('k', { baseUrl, readTimeout: 45 }).upload(file);
+      expect(
+        spy.mock.calls.filter(([fn]) => String(fn).includes('abort')).map(([, ms]) => ms)
+      ).toEqual([45000]);
       spy.mockClear();
       await new Client('k', { baseUrl }).upload(file, { timeout: 300 });
       const d2 = spy.mock.calls

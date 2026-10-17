@@ -119,10 +119,16 @@ const url = await wavespeed.upload("/path/to/image.png");
 console.log(url);
 ```
 
-Each upload request has a 120s read timeout (`readTimeout`, also
-`WAVESPEED_READ_TIMEOUT`): it fails only after no progress for 120s, and a large
+Each upload request has a 120s read timeout (no progress for 120s); a large
 file that keeps transferring is not cut off. Pass `upload(path, { timeout })` to
 set an explicit total limit instead.
+
+### Request Timeouts
+
+By default there is no overall limit on how long `run()` waits for a task. Each
+single HTTP request has its own read timeout: result queries 30s, async submit
+60s, uploads 120s (sync mode has none unless you pass `timeout`). Set
+`readTimeout` on the client (or `WAVESPEED_READ_TIMEOUT`) to override all three.
 
 ### Getting Task ID and Debug Information
 
