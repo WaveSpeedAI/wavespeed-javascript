@@ -278,7 +278,8 @@ export class Client {
   private baseUrl: string;
   readonly clientName: string;
   readonly connectionTimeout: number;
-  readonly timeout: number;
+  readonly timeout: number | undefined;
+  readonly readTimeout: number;
   readonly maxRetries: number;
   readonly maxConnectionRetries: number;
   readonly retryInterval: number;
@@ -290,7 +291,8 @@ export class Client {
    *     apiKey: WaveSpeed API key. If not provided, uses wavespeed.config.api.apiKey.
    *     options.baseUrl: Base URL for the API. If not provided, uses wavespeed.config.api.baseUrl.
    *     options.connectionTimeout: Timeout for HTTP requests in seconds.
-   *     options.timeout: Total API call timeout in seconds.
+   *     options.timeout: Overall wait cap in seconds (default: no limit).
+   *     options.readTimeout: Abort timeout for a single async submit/result request in seconds.
    *     options.maxRetries: Maximum number of retries for the entire operation.
    *     options.maxConnectionRetries: Maximum retries for result-query GET requests.
    *     options.retryInterval: Base interval between retries in seconds.
@@ -304,6 +306,7 @@ export class Client {
       clientName?: string;
       connectionTimeout?: number;
       timeout?: number;
+      readTimeout?: number;
       maxRetries?: number;
       maxConnectionRetries?: number;
       retryInterval?: number;
@@ -313,6 +316,7 @@ export class Client {
     this.baseUrl = (options?.baseUrl || apiConfig.baseUrl).replace(/\/+$/, '');
     this.connectionTimeout = options?.connectionTimeout ?? apiConfig.connectionTimeout;
     this.timeout = options?.timeout ?? apiConfig.timeout;
+    this.readTimeout = options?.readTimeout ?? apiConfig.readTimeout;
     this.maxRetries = options?.maxRetries ?? apiConfig.maxRetries;
     this.maxConnectionRetries = options?.maxConnectionRetries ?? apiConfig.maxConnectionRetries;
     this.retryInterval = options?.retryInterval ?? apiConfig.retryInterval;
@@ -376,11 +380,11 @@ export class Client {
       body.enable_sync_mode = true;
     }
 
-    const requestTimeout = timeout ?? this.timeout;
-    // fetch cannot separate the connect phase from the read phase, so the
-    // abort must cover the total request window. Aborting at the (short)
-    // connection timeout would cap the whole request and break sync mode,
-    // which legitimately holds the connection open until the result is ready.
+    // An explicit timeout bounds the request as before. Otherwise async submit
+    // uses the bounded readTimeout, while sync mode (the POST stays open until
+    // the task finishes) has no abort timer. fetch cannot separate connect
+    // from read, so aborting at the short connection timeout would break sync.
+    const requestTimeout = timeout ?? (enableSyncMode ? undefined : this.readTimeout);
     const controller = new AbortController();
     const timeoutId = requestTimeout
       ? setTimeout(() => controller.abort(), requestTimeout * 1000)
@@ -447,11 +451,12 @@ export class Client {
     timeout?: number
   ): Promise<Record<string, any>> {
     const url = `${this.baseUrl}/api/v3/predictions/${requestId}/result`;
-    const requestTimeout = timeout ?? this.timeout;
-    const connectTimeout = requestTimeout
-      ? Math.min(this.connectionTimeout, requestTimeout)
-      : this.connectionTimeout;
-    const timeoutMs = connectTimeout * 1000;
+    // Explicit timeout: unchanged (capped by the connection timeout).
+    // Default: the bounded per-request readTimeout.
+    const timeoutMs =
+      (timeout !== undefined
+        ? Math.min(this.connectionTimeout, timeout)
+        : this.readTimeout) * 1000;
 
     let lastError: Error | undefined;
 
@@ -901,7 +906,8 @@ export class Client {
       ...this._getClientHeaders(),
     };
     const timeout = options?.timeout ?? this.timeout;
-    const requestTimeout = Math.min(this.connectionTimeout, timeout);
+    const requestTimeout =
+      timeout !== undefined ? Math.min(this.connectionTimeout, timeout) : this.connectionTimeout;
     const timeoutMs = requestTimeout * 1000;
 
     // Node.js environment check
@@ -961,7 +967,10 @@ export class Client {
 
       const data = fs.readFileSync(file);
       const uploadController = new AbortController();
-      const uploadTimeoutId = setTimeout(() => uploadController.abort(), timeout * 1000);
+      const uploadTimeoutId =
+        timeout !== undefined
+          ? setTimeout(() => uploadController.abort(), timeout * 1000)
+          : undefined;
       try {
         const uploadResponse = await fetch(instruction.url, {
           method: 'PUT',
@@ -976,7 +985,7 @@ export class Client {
           );
         }
       } finally {
-        clearTimeout(uploadTimeoutId);
+        if (uploadTimeoutId !== undefined) clearTimeout(uploadTimeoutId);
       }
 
       return downloadUrl;

@@ -70,7 +70,7 @@ const output = await wavespeed.run(
   "wavespeed-ai/z-image/turbo",
   { prompt: "Cat" },
   {
-    timeout: 36000.0,       // Max wait time in seconds (default: 36000.0)
+    timeout: 36000.0,       // Max wait time in seconds (default: no limit)
     pollInterval: 1.0,      // Status check interval (default: 1.0)
     enableSyncMode: false,  // Best-effort sync result attempt (default: false)
   }

@@ -13,6 +13,16 @@ function getEnv(name: string): string | undefined {
 }
 
 /**
+ * Read a positive number of seconds from an environment variable.
+ */
+function getEnvSeconds(name: string): number | undefined {
+  const raw = getEnv(name);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
  * API client configuration options.
  */
 export class api {
@@ -25,8 +35,14 @@ export class api {
   // Connection timeout in seconds
   static connectionTimeout: number = 10.0;
 
-  // Total API call timeout in seconds
-  static timeout: number = 36000.0;
+  // Overall wait cap in seconds. undefined (default) = no limit: wait until
+  // the task reaches a terminal status. Env: WAVESPEED_TIMEOUT.
+  static timeout: number | undefined = getEnvSeconds('WAVESPEED_TIMEOUT');
+
+  // Abort timeout in seconds for a single async submit POST or result GET, so
+  // a half-open connection fails that one request instead of hanging.
+  // Env: WAVESPEED_READ_TIMEOUT.
+  static readTimeout: number = getEnvSeconds('WAVESPEED_READ_TIMEOUT') ?? 120.0;
 
   // Maximum number of retries for the entire operation (task-level retries)
   static maxRetries: number = 0;

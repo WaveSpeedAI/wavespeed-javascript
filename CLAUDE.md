@@ -92,7 +92,8 @@ const url = await upload('/path/to/file');
 Client-level configuration:
 - `baseUrl` - API base URL
 - `pollInterval` - Polling interval in seconds
-- `timeout` - Overall timeout in seconds
+- `timeout` - Overall wait cap in seconds (default: none)
+- `readTimeout` - Abort timeout for one async submit/result request (default: 120)
 - `maxRetries` - Task-level retries
 - `maxConnectionRetries` - HTTP connection retries
 - `retryInterval` - Base retry delay in seconds
@@ -108,7 +109,8 @@ Per-request configuration via `RunOptions`:
 - `WAVESPEED_API_KEY` - API key
 - `WAVESPEED_BASE_URL` - Base URL (default: https://api.wavespeed.ai)
 - `WAVESPEED_POLL_INTERVAL` - Poll interval in seconds
-- `WAVESPEED_TIMEOUT` - Timeout in seconds
+- `WAVESPEED_TIMEOUT` - Overall wait cap in seconds (default: none)
+- `WAVESPEED_READ_TIMEOUT` - Per-request abort timeout in seconds (default: 120)
 - `WAVESPEED_REQUEST_TIMEOUT` - Per-request timeout (internal)
 
 ## Project Structure

@@ -429,7 +429,7 @@ describe('Client', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  test('_submit abort covers the total timeout, not the connect timeout', async () => {
+  test('_submit with explicit timeout aborts at that timeout, not the connect timeout', async () => {
     const mockResponse = {
       ok: true,
       status: 200,
@@ -442,7 +442,9 @@ describe('Client', () => {
       const client = new Client('test-key', { connectionTimeout: 10, timeout: 1800 });
       const [requestId] = await (client as any)._submit(
         'wavespeed-ai/z-image/turbo',
-        { prompt: 'test' }
+        { prompt: 'test' },
+        false,
+        1800
       );
 
       expect(requestId).toBe('req-123');
