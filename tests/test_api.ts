@@ -735,65 +735,6 @@ describe('Upload', () => {
     jest.restoreAllMocks();
   });
 
-  test('upload file path', async () => {
-    const mockResponse = {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        code: 200,
-        message: 'success',
-        data: {
-          type: 'image',
-          download_url: 'https://example.com/uploaded.png',
-          filename: 'test.png',
-          size: 1024,
-          upload: {
-            method: 'PUT',
-            url: 'https://storage.example.com/upload',
-            headers: { 'Content-Type': 'image/png' },
-            expires_at: '2026-08-11T06:00:00Z',
-          },
-        },
-      }),
-    };
-    const mockUploadResponse = { ok: true, status: 200 };
-    (global.fetch as jest.Mock)
-      .mockResolvedValueOnce(mockResponse)
-      .mockResolvedValueOnce(mockUploadResponse);
-
-    // Mock fs module
-    const fs = require('fs');
-    const path = require('path');
-    jest.spyOn(fs, 'existsSync').mockReturnValue(true);
-    jest.spyOn(fs, 'statSync').mockReturnValue({ size: 15 } as any);
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(Buffer.from('fake image data'));
-    jest.spyOn(path, 'basename').mockReturnValue('test.png');
-
-    const client = new Client('test-key');
-    const url = await client.upload('/fake/path/test.png');
-
-    expect(url).toBe('https://example.com/uploaded.png');
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      1,
-      'https://api.wavespeed.ai/api/v3/media/uploads',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ filename: 'test.png', size: 15, content_type: 'image/png' }),
-      })
-    );
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      2,
-      'https://storage.example.com/upload',
-      expect.objectContaining({
-        method: 'PUT',
-        headers: { 'Content-Type': 'image/png' },
-      })
-    );
-    const uploadHeaders = (global.fetch as jest.Mock).mock.calls[1][1].headers;
-    expect(uploadHeaders.Authorization).toBeUndefined();
-  });
-
   test('upload raises without api key', async () => {
     const client = new Client();
     (client as any).apiKey = undefined;

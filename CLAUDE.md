@@ -84,7 +84,7 @@ const url = await upload('/path/to/file');
 - **Sync Mode**: Single request that waits for result (`enableSyncMode`)
 - **Retry Logic**: Configurable task-level and connection-level retries
 - **Timeout Control**: Per-request and overall timeouts
-- **File Upload**: Direct file upload to WaveSpeed storage (ticket request: `readTimeout`; PUT: `readTimeout` + size at ~1 Mbps, since fetch has no inactivity timeout)
+- **File Upload**: Direct file upload to WaveSpeed storage (each request has a 120s `readTimeout`; the file PUT uses node:http(s) with a socket idle timeout, so large transfers that keep moving are not cut)
 - **TypeScript Support**: Full type definitions included
 
 ### Configuration

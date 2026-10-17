@@ -20,9 +20,6 @@ const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
  * Statuses that mean the task has reached a terminal, non-successful state
  * and polling must stop.
  */
-// Assumed floor transfer rate (~1 Mbps) used to size the default upload PUT deadline.
-const MIN_UPLOAD_BYTES_PER_SEC = 128 * 1024;
-
 const TERMINAL_FAILURE_STATUSES = new Set(['failed', 'cancelled', 'timeout', 'deleted']);
 
 /**
@@ -877,6 +874,83 @@ export class Client {
   }
 
   /**
+   * PUT a file to a presigned storage URL with node:http(s) (upload() is
+   * Node-only). fetch has no idle-timeout hook, whereas the socket `timeout`
+   * option fires only after idleMs with no activity while sending the body or
+   * waiting for the response, so a large file that keeps transferring is not
+   * cut off. totalMs (explicit user timeout) is a total deadline instead.
+   */
+  private _putFile(
+    urlStr: string,
+    headers: Record<string, string>,
+    file: string,
+    size: number,
+    idleMs: number | undefined,
+    totalMs: number | undefined
+  ): Promise<void> {
+    const fs = require('fs');
+    const target = new URL(urlStr);
+    const lib = target.protocol === 'http:' ? require('http') : require('https');
+    const reqHeaders: Record<string, string> = { ...headers };
+    if (!Object.keys(reqHeaders).some((k) => k.toLowerCase() === 'content-length')) {
+      reqHeaders['Content-Length'] = String(size);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let totalTimer: ReturnType<typeof setTimeout> | undefined;
+      const fileStream = fs.createReadStream(file);
+      const finish = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (totalTimer !== undefined) clearTimeout(totalTimer);
+        fileStream.destroy();
+        err ? reject(err) : resolve();
+      };
+      const req = lib.request(
+        target,
+        { method: 'PUT', headers: reqHeaders, ...(idleMs !== undefined ? { timeout: idleMs } : {}) },
+        (res: any) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('error', (e: Error) => finish(e));
+          res.on('end', () => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              finish();
+            } else {
+              finish(
+                new Error(
+                  `Failed to upload file: HTTP ${res.statusCode}: ${Buffer.concat(chunks).toString('utf8')}`
+                )
+              );
+            }
+          });
+        }
+      );
+      if (idleMs !== undefined) {
+        req.on('timeout', () => {
+          const err = new Error(`Upload timed out: no progress for ${idleMs / 1000} seconds`);
+          req.destroy(err);
+          finish(err);
+        });
+      }
+      if (totalMs !== undefined) {
+        totalTimer = setTimeout(() => {
+          const err = new Error(`Upload timed out after ${totalMs / 1000} seconds`);
+          req.destroy(err);
+          finish(err);
+        }, totalMs);
+      }
+      req.on('error', (e: Error) => finish(e));
+      fileStream.on('error', (e: Error) => {
+        req.destroy(e);
+        finish(e);
+      });
+      fileStream.pipe(req);
+    });
+  }
+
+  /**
    * Upload a file to WaveSpeed.
    *
    * Args:
@@ -970,36 +1044,14 @@ export class Client {
         throw new Error('Upload failed: invalid upload instruction');
       }
 
-      const data = fs.readFileSync(file);
-      const uploadController = new AbortController();
-      // fetch exposes no upload progress or inactivity hook (the body is
-      // consumed into socket buffers far ahead of the wire), so a PUT can only
-      // be bounded by a total deadline. A flat 120s would cut large uploads
-      // that are still transferring, so by default the deadline is readTimeout
-      // plus the time needed at MIN_UPLOAD_BYTES_PER_SEC: a stalled or
-      // half-open connection still fails, a slow-but-moving one is not cut.
-      // An explicit timeout is used as the total deadline, as before.
-      const putTimeoutMs =
-        timeout !== undefined
-          ? timeout * 1000
-          : (this.readTimeout + data.length / MIN_UPLOAD_BYTES_PER_SEC) * 1000;
-      const uploadTimeoutId = setTimeout(() => uploadController.abort(), putTimeoutMs);
-      try {
-        const uploadResponse = await fetch(instruction.url, {
-          method: 'PUT',
-          headers: instruction.headers,
-          body: data,
-          signal: uploadController.signal,
-        });
-        if (!uploadResponse.ok) {
-          const errorText = await uploadResponse.text();
-          throw new Error(
-            `Failed to upload file: HTTP ${uploadResponse.status}: ${errorText}`
-          );
-        }
-      } finally {
-        clearTimeout(uploadTimeoutId);
-      }
+      await this._putFile(
+        instruction.url,
+        instruction.headers || {},
+        file,
+        size,
+        timeout !== undefined ? undefined : this.readTimeout * 1000,
+        timeout !== undefined ? timeout * 1000 : undefined
+      );
 
       return downloadUrl;
 
