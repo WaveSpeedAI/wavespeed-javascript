@@ -200,6 +200,17 @@ export class WavespeedPredictionException extends WavespeedException {
 }
 
 /**
+ * The task itself reported status `failed`; a task-level re-run is allowed.
+ * Internal: the message keeps the `Prediction failed (task_id: ...)` format.
+ */
+class TaskReportedFailure extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TaskReportedFailure';
+  }
+}
+
+/**
  * Unknown exception
  */
 export class WavespeedUnknownException extends WavespeedException {
@@ -557,7 +568,8 @@ export class Client {
         // cancelled, timeout, and deleted are terminal too: keep polling and the task
         // will never complete, so surface the API's error text and stop.
         const error = data.error || `Task ${status}`;
-        throw new Error(`Prediction failed (task_id: ${requestId}): ${error}`);
+        const message = `Prediction failed (task_id: ${requestId}): ${error}`;
+        throw status === 'failed' ? new TaskReportedFailure(message) : new Error(message);
       }
 
       await new Promise((resolve) => setTimeout(resolve, pollInterval * 1000));
@@ -565,36 +577,15 @@ export class Client {
   }
 
   /**
-   * Determine if an error is worth retrying at the task level.
+   * Determine if an error is worth re-running the task for.
    *
-   * Args:
-   *     error: The exception to check.
-   *
-   * Returns:
-   *     True if the error is retryable.
+   * Only a failure reported by the task itself is re-run. Submission errors are
+   * ambiguous (the task may already exist), and poll-side HTTP errors, poll
+   * retry exhaustion and client-side wait timeouts all happen after the task was
+   * created and may be charged, so none of them may turn into another POST.
    */
   private _isRetryableError(error: any): boolean {
-    if (!error) return false;
-
-    if (error instanceof WavespeedSubmissionException) {
-      return false;
-    }
-
-    // Always retry timeout and connection errors
-    const errorStr = error.toString().toLowerCase();
-    if (errorStr.includes('sync mode timed out')) {
-      return false;
-    }
-    if (errorStr.includes('timeout') || errorStr.includes('connection')) {
-      return true;
-    }
-
-    // Retry server errors (5xx) and rate limiting (429)
-    if (errorStr.includes('http 5') || errorStr.includes('429')) {
-      return true;
-    }
-
-    return false;
+    return error instanceof TaskReportedFailure;
   }
 
   private _resultUrlFromData(data: Record<string, any>): string | undefined {
@@ -815,8 +806,8 @@ export class Client {
         // If not retryable or last attempt, return error result
         if (!isRetryable || attempt >= taskRetries) {
           // Try to extract taskId from error message
-          const taskIdMatch = error.message?.match(/task_id:\s*([^)]+)/);
-          const taskId = taskIdMatch ? taskIdMatch[1] : 'unknown';
+          const taskIdMatch = error.message?.match(/task_id:\s*([^)]+)|for task ([^\s:]+)/);
+          const taskId = taskIdMatch ? (taskIdMatch[1] ?? taskIdMatch[2]) : 'unknown';
           const resultUrlMatch = error.message?.match(/Query the result later at:\s*(\S+)/);
           const resultUrl = resultUrlMatch ? resultUrlMatch[1] : undefined;
 

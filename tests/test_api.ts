@@ -561,25 +561,91 @@ describe('Client', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
-  test('_isRetryableError for timeout', () => {
+  test('_isRetryableError is false for timeout, 5xx and 429 (task already exists)', () => {
     const client = new Client('test-key');
-    const timeoutError = new Error('Request timeout');
 
-    expect((client as any)._isRetryableError(timeoutError)).toBe(true);
+    for (const message of ['Request timeout', 'HTTP 500', 'HTTP 429']) {
+      expect((client as any)._isRetryableError(new Error(message))).toBe(false);
+    }
   });
 
-  test('_isRetryableError for 5xx', () => {
-    const client = new Client('test-key');
-    const serverError = new Error('HTTP 500');
+  test('run does not re-submit after poll retry exhaustion', async () => {
+    const submitResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: 'req-123' } }),
+    };
+    const badGateway = {
+      ok: false,
+      status: 502,
+      text: async () => 'Bad Gateway',
+    };
 
-    expect((client as any)._isRetryableError(serverError)).toBe(true);
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: any) =>
+      init?.method === 'POST' ? submitResponse : badGateway
+    );
+
+    const client = new Client('test-key', {
+      maxRetries: 2,
+      maxConnectionRetries: 1,
+      retryInterval: 0.01,
+    });
+
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' })
+    ).rejects.toThrow('Failed to get result for task req-123: HTTP 502');
+
+    const posts = (global.fetch as jest.Mock).mock.calls.filter(
+      (call) => call[1]?.method === 'POST'
+    );
+    expect(posts).toHaveLength(1);
   });
 
-  test('_isRetryableError for 429', () => {
-    const client = new Client('test-key');
-    const rateLimitError = new Error('HTTP 429');
+  test('run does not re-submit after a wait timeout', async () => {
+    const submitResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: 'req-123' } }),
+    };
+    (global.fetch as jest.Mock).mockResolvedValue(submitResponse);
 
-    expect((client as any)._isRetryableError(rateLimitError)).toBe(true);
+    const client = new Client('test-key', { maxRetries: 2, retryInterval: 0.01 });
+
+    await expect(
+      client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' }, { timeout: 0 })
+    ).rejects.toThrow('timed out after 0 seconds (task_id: req-123)');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('runNoThrow does not re-submit after poll-side HTTP errors', async () => {
+    const submitResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: 'req-123' } }),
+    };
+    const badGateway = {
+      ok: false,
+      status: 502,
+      text: async () => 'Bad Gateway',
+    };
+
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: any) =>
+      init?.method === 'POST' ? submitResponse : badGateway
+    );
+
+    const client = new Client('test-key', {
+      maxRetries: 2,
+      maxConnectionRetries: 0,
+      retryInterval: 0.01,
+    });
+    const result = await client.runNoThrow('wavespeed-ai/z-image/turbo', { prompt: 'test' });
+
+    expect(result.outputs).toBeNull();
+    expect(result.detail.taskId).toBe('req-123');
+    const posts = (global.fetch as jest.Mock).mock.calls.filter(
+      (call) => call[1]?.method === 'POST'
+    );
+    expect(posts).toHaveLength(1);
   });
 
   test('run with task retry', async () => {
