@@ -648,6 +648,22 @@ describe('Client', () => {
     expect(posts).toHaveLength(1);
   });
 
+  test('run does not re-run a task that failed for a deterministic reason', async () => {
+    const submit = { ok: true, status: 200, json: async () => ({ data: { id: 'req-123' } }) };
+    const failed = {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { status: 'failed', error: 'content policy violation' } }),
+    };
+    (global.fetch as jest.Mock).mockResolvedValueOnce(submit).mockResolvedValueOnce(failed);
+
+    const client = new Client('test-key', { maxRetries: 2 });
+    await expect(client.run('wavespeed-ai/z-image/turbo', { prompt: 'test' })).rejects.toThrow();
+
+    const posts = (global.fetch as jest.Mock).mock.calls.filter(([, init]: any) => init?.method === 'POST');
+    expect(posts).toHaveLength(1);
+  });
+
   test('run with task retry', async () => {
     const mockSubmitResponse = {
       ok: true,

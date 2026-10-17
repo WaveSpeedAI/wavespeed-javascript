@@ -579,13 +579,16 @@ export class Client {
   /**
    * Determine if an error is worth re-running the task for.
    *
-   * Only a failure reported by the task itself is re-run. Submission errors are
-   * ambiguous (the task may already exist), and poll-side HTTP errors, poll
-   * retry exhaustion and client-side wait timeouts all happen after the task was
-   * created and may be charged, so none of them may turn into another POST.
+   * Only a failure reported by the task itself is re-run, and only when it was a
+   * transient upstream error (HTTP 5xx / 429), as before: a deterministic
+   * failure such as a content-policy rejection would fail again. Submission
+   * errors are ambiguous (the task may already exist), and poll-side HTTP
+   * errors, poll retry exhaustion and client-side wait timeouts all happen
+   * after the task was created and may be charged, so none of them may turn
+   * into another POST.
    */
   private _isRetryableError(error: any): boolean {
-    return error instanceof TaskReportedFailure;
+    return error instanceof TaskReportedFailure && /HTTP 5|HTTP 429/.test(error.message);
   }
 
   private _resultUrlFromData(data: Record<string, any>): string | undefined {
