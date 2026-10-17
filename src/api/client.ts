@@ -20,6 +20,9 @@ const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
  * Statuses that mean the task has reached a terminal, non-successful state
  * and polling must stop.
  */
+// Assumed floor transfer rate (~1 Mbps) used to size the default upload PUT deadline.
+const MIN_UPLOAD_BYTES_PER_SEC = 128 * 1024;
+
 const TERMINAL_FAILURE_STATUSES = new Set(['failed', 'cancelled', 'timeout', 'deleted']);
 
 /**
@@ -906,9 +909,11 @@ export class Client {
       ...this._getClientHeaders(),
     };
     const timeout = options?.timeout ?? this.timeout;
-    const requestTimeout =
-      timeout !== undefined ? Math.min(this.connectionTimeout, timeout) : this.connectionTimeout;
-    const timeoutMs = requestTimeout * 1000;
+    // Explicit timeout: unchanged (ticket capped by the connection timeout,
+    // PUT bounded by the total timeout). Default: every request in upload()
+    // uses readTimeout (120s); for the PUT it is an inactivity timeout.
+    const timeoutMs =
+      (timeout !== undefined ? Math.min(this.connectionTimeout, timeout) : this.readTimeout) * 1000;
 
     // Node.js environment check
     let fs: any;
@@ -967,10 +972,18 @@ export class Client {
 
       const data = fs.readFileSync(file);
       const uploadController = new AbortController();
-      const uploadTimeoutId =
+      // fetch exposes no upload progress or inactivity hook (the body is
+      // consumed into socket buffers far ahead of the wire), so a PUT can only
+      // be bounded by a total deadline. A flat 120s would cut large uploads
+      // that are still transferring, so by default the deadline is readTimeout
+      // plus the time needed at MIN_UPLOAD_BYTES_PER_SEC: a stalled or
+      // half-open connection still fails, a slow-but-moving one is not cut.
+      // An explicit timeout is used as the total deadline, as before.
+      const putTimeoutMs =
         timeout !== undefined
-          ? setTimeout(() => uploadController.abort(), timeout * 1000)
-          : undefined;
+          ? timeout * 1000
+          : (this.readTimeout + data.length / MIN_UPLOAD_BYTES_PER_SEC) * 1000;
+      const uploadTimeoutId = setTimeout(() => uploadController.abort(), putTimeoutMs);
       try {
         const uploadResponse = await fetch(instruction.url, {
           method: 'PUT',
@@ -985,7 +998,7 @@ export class Client {
           );
         }
       } finally {
-        if (uploadTimeoutId !== undefined) clearTimeout(uploadTimeoutId);
+        clearTimeout(uploadTimeoutId);
       }
 
       return downloadUrl;

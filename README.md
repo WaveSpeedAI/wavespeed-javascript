@@ -119,6 +119,12 @@ const url = await wavespeed.upload("/path/to/image.png");
 console.log(url);
 ```
 
+Each upload request is bounded by `readTimeout` (default 120s, also
+`WAVESPEED_READ_TIMEOUT`). The file transfer itself cannot report progress, so
+its deadline is `readTimeout` plus the time needed at ~1 Mbps: a stalled
+connection fails, a slow but moving upload is not cut. Pass
+`upload(path, { timeout })` to set an explicit total limit instead.
+
 ### Getting Task ID and Debug Information
 
 If you need access to the task ID for logging, tracking, or debugging, use `runNoThrow()` instead of `run()`. This method returns detailed information and does not throw exceptions:

@@ -134,4 +134,76 @@ describe('timeouts', () => {
     await expect(client.run('m/x', {})).rejects.toThrow();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
+
+  describe('upload', () => {
+    const fs = require('fs');
+    const ticket = (size: number) =>
+      json({
+        code: 200,
+        data: {
+          download_url: 'https://cdn/x.png',
+          upload: { method: 'PUT', url: 'https://storage/put', headers: {} },
+        },
+      });
+    const setup = (size: number) => {
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'statSync').mockReturnValue({ size } as any);
+      jest.spyOn(fs, 'readFileSync').mockReturnValue(Buffer.alloc(size));
+    };
+
+    test('ticket and PUT use the 120s readTimeout by default (small file)', async () => {
+      setup(10);
+      const spy = jest.spyOn(global, 'setTimeout');
+      mockFetch.mockResolvedValueOnce(ticket(10)).mockResolvedValueOnce({ ok: true, status: 200 });
+      const client = new Client('k');
+      await client.upload('/f/x.png');
+      const d = abortDelays(spy);
+      expect(d[0]).toBe(120000);
+      expect(d[1]).toBeGreaterThanOrEqual(120000);
+      expect(d[1]).toBeLessThan(120100);
+    });
+
+    test('client readTimeout applies to the ticket request', async () => {
+      setup(10);
+      const spy = jest.spyOn(global, 'setTimeout');
+      mockFetch.mockResolvedValueOnce(ticket(10)).mockResolvedValueOnce({ ok: true, status: 200 });
+      await new Client('k', { readTimeout: 30 }).upload('/f/x.png');
+      expect(abortDelays(spy)[0]).toBe(30000);
+    });
+
+    test('explicit timeout keeps old behavior (ticket min(10, t), PUT t)', async () => {
+      setup(10);
+      const spy = jest.spyOn(global, 'setTimeout');
+      mockFetch.mockResolvedValueOnce(ticket(10)).mockResolvedValueOnce({ ok: true, status: 200 });
+      await new Client('k').upload('/f/x.png', { timeout: 300 });
+      expect(abortDelays(spy)).toEqual([10000, 300000]);
+    });
+
+    test('a large slow upload is not aborted at 120s, a stalled one is aborted at its deadline', async () => {
+      const size = 64 * 1024 * 1024; // deadline = 120s + 512s
+      setup(size);
+      let signal: AbortSignal | undefined;
+      mockFetch.mockResolvedValueOnce(ticket(size)).mockImplementationOnce(
+        (_u: string, init: any) =>
+          new Promise((resolve, reject) => {
+            signal = init.signal;
+            init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+            setTimeout(() => resolve({ ok: true, status: 200 }), 300 * 1000);
+          })
+      );
+      const ok = new Client('k').upload('/f/big.bin');
+      await jest.advanceTimersByTimeAsync(301 * 1000);
+      await expect(ok).resolves.toBe('https://cdn/x.png');
+      expect(signal!.aborted).toBe(false);
+
+      mockFetch.mockResolvedValueOnce(ticket(size)).mockImplementationOnce(
+        (_u: string, init: any) =>
+          new Promise((_r, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted'))))
+      );
+      const stalled = new Client('k').upload('/f/big.bin');
+      const assertion = expect(stalled).rejects.toThrow('aborted');
+      await jest.advanceTimersByTimeAsync(633 * 1000);
+      await assertion;
+    });
+  });
 });
